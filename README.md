@@ -36,6 +36,17 @@ All in `config.py`: scoring format (std/ppr/half — must match the Yahoo league
 WWO blend weight, per-position candidate counts, optional per-position rescaling
 of WWO onto FP's level.
 
+## Known data gaps
+
+Rule: missing data is flagged, never filled in with estimates. No number
+appears in any output file unless it came from a source.
+
+- **Travis Hunter's defensive stats**: no source projects them (FantasyPros
+  classifies him WR-only; the IDP CSVs have no row for him). His DB-slot value
+  (offense + defense combined) is therefore UNKNOWN — the pipeline carries only
+  his sourced offensive projection. Needs a real defensive projection source
+  before any DB-slot comparison is made.
+
 ## Notes
 
 - K/DST: fetched as FP's plain top-10 (they're last-round picks; no blending).
