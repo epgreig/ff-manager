@@ -172,6 +172,7 @@ def parse_wwo(path: Path, col_overrides: dict, scoring_rules: dict | None = None
     i_pts = _detect_col(
         headers, col_overrides.get("points"), ["fpts", "proj", "fantasy", "points", "pts"]
     )
+    i_delta = _detect_col(headers, None, ["delta"])
     missing = [lbl for lbl, i in [("name", i_name), ("position", i_pos), ("points", i_pts)] if i is None]
     if missing:
         raise SystemExit(
@@ -194,7 +195,9 @@ def parse_wwo(path: Path, col_overrides: dict, scoring_rules: dict | None = None
         if pts <= 0:
             continue
         pos = re.sub(r"\d+$", "", r[i_pos].strip().upper())  # WR3 -> WR
-        out.append({"name": r[i_name].strip(), "position": pos, "points": round(pts, 2)})
+        delta = _num(r[i_delta]) if i_delta is not None and i_delta < len(r) else 0.0
+        out.append({"name": r[i_name].strip(), "position": pos, "points": round(pts, 2),
+                    "delta": delta})
     if not out:
         raise SystemExit(f"Parsed 0 usable rows from {path} (headers: {headers})")
     return out

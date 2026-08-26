@@ -74,6 +74,7 @@ def main():
         by_fpid[r["fpid"]] = r
 
     wwo_pts = {}  # fpid -> points
+    wwo_delta = {}  # fpid -> 7-day move on WWO's own (full-PPR) scale; staleness indicator
     wwo_unmatched = []
     for w in wwo:
         row = None
@@ -87,6 +88,7 @@ def main():
             row = hits[0] if hits else None
         if row is not None:
             wwo_pts[row["fpid"]] = w["points"]
+            wwo_delta[row["fpid"]] = w.get("delta", 0.0)
         else:
             wwo_unmatched.append(w)
 
@@ -121,10 +123,33 @@ def main():
             "fp_pts": round(r["fp_pts"], 1),
             "wwo_pts": "" if wp is None else round(wp, 1),
             "blend_pts": round(blend, 1), "source": src,
+            "diff": "" if wp is None else round(wp - r["fp_pts"], 1),
+            "wwo_7d_delta": "" if wp is None else wwo_delta.get(r["fpid"], 0.0),
         })
     out_rows.sort(key=lambda r: -r["blend_pts"])
     write_csv_dicts(OUT_PATH, out_rows,
-                    ["fpid", "name", "position", "team", "fp_pts", "wwo_pts", "blend_pts", "source"])
+                    ["fpid", "name", "position", "team", "fp_pts", "wwo_pts", "blend_pts",
+                     "source", "diff", "wwo_7d_delta"])
+
+    # Backfield coupling: opposite-signed diffs on one team's RBs mean the prop
+    # market is reallocating volume between them (availability/role repricing) —
+    # a signal skew alone cannot produce.
+    by_team = defaultdict(list)
+    for r in out_rows:
+        if r["position"] == "RB" and r["diff"] != "":
+            by_team[r["team"]].append(r)
+    flags = []
+    for team, rs in by_team.items():
+        up = [r for r in rs if r["diff"] >= 12]
+        down = [r for r in rs if r["diff"] <= -12]
+        if up and down:
+            flags.append((team, down, up))
+    if flags:
+        print("\nBackfield reallocation flags (market moving RB volume within a team):")
+        for team, down, up in flags:
+            d = ", ".join(f"{r['name']} {r['diff']:+.0f}" for r in down)
+            u = ", ".join(f"{r['name']} {r['diff']:+.0f}" for r in up)
+            print(f"  {team}: {d}  ->  {u}")
 
     # Unmatched report, biggest projections first. FP side only flags players
     # WWO should plausibly cover (offense with meaningful points).
