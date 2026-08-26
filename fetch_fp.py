@@ -66,7 +66,7 @@ def candidate_names() -> dict[str, list[str]]:
     for p in sorted(ffc["players"], key=lambda p: p["adp"]):
         add(p["name"], p["position"])
 
-    wwo_path = find_wwo(ROOT / "data")
+    wwo_path = find_wwo(ROOT / "data", config.WWO_FILE)
     if wwo_path:
         wwo = parse_wwo(wwo_path, config.WWO_COLS, config.SCORING_RULES)
         for r in sorted(wwo, key=lambda r: -r["points"]):
@@ -150,19 +150,21 @@ def main():
 
     print(f"Candidate pool: {len(fpids)} offensive players + top-10 K/DST")
 
-    # Preload every cached batch (<24h old) no matter which query produced it,
-    # then request only the players still missing. This makes the cache immune
-    # to candidate reordering between runs.
+    # Preload cached batches no matter which query produced them, so the cache
+    # is immune to candidate reordering between runs. Fresh (<24h) batches
+    # satisfy a player outright; older ones are kept as a fallback used only
+    # if the quota runs out before that player is refetched.
     players: dict[int, dict] = {}
+    stale: dict[int, dict] = {}
     batches_dir = CACHE / "batches"
     if batches_dir.exists():
         import time as _t
         for f in batches_dir.glob("*.json"):
-            if _t.time() - f.stat().st_mtime < 86400:
-                for p in json.loads(f.read_text()).get("players") or []:
-                    players[p["fpid"]] = flatten(p)
-    if players:
-        print(f"Preloaded {len(players)} players from batch cache")
+            target = players if _t.time() - f.stat().st_mtime < 86400 else stale
+            for p in json.loads(f.read_text()).get("players") or []:
+                target[p["fpid"]] = flatten(p)
+    if players or stale:
+        print(f"Preloaded {len(players)} fresh + {len(stale)} stale players from batch cache")
 
     missing = sorted(fid for fid in set(fpids) if int(fid) not in players)
     have_pos = {r["position"] for r in players.values()}
@@ -187,6 +189,14 @@ def main():
         for p in resp.get("players") or []:
             players[p["fpid"]] = flatten(p)
         time.sleep(0.4)
+
+    filled = 0
+    for fid, p in stale.items():
+        if fid not in players:
+            players[fid] = p
+            filled += 1
+    if filled:
+        print(f"Filled {filled} players from stale cache (older than 24h — refetch when quota allows)")
 
     rows = sorted(players.values(), key=lambda r: (r["position"], -float(r["points_half"] or 0)))
     write_csv_dicts(

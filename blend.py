@@ -24,11 +24,29 @@ UNMATCHED_PATH = ROOT / "out" / "unmatched.csv"
 
 
 def load_wwo():
-    path = find_wwo(ROOT / "data")
+    path = find_wwo(ROOT / "data", config.WWO_FILE)
     if path is None:
         return None
     print(f"WinWithOdds source: {path.name} (points computed under league scoring)")
     return parse_wwo(path, config.WWO_COLS, config.SCORING_RULES)
+
+
+def write_idp():
+    """Rank the FantasyPros IDP CSVs under league IDP scoring -> out/idp.csv."""
+    rows = []
+    for path in sorted((ROOT / "data").glob("FantasyPros_*_Projections_*.csv")):
+        pos = path.stem.rsplit("_", 1)[1]
+        for r in read_csv_dicts(path):
+            if not r.get("Player", "").strip():  # interleaved high/low rows
+                continue
+            pts = sum(float(r[c] or 0) * w for c, w in config.IDP_SCORING.items() if c in r)
+            rows.append({"name": r["Player"], "position": pos, "team": r.get("Team", ""),
+                         "idp_pts": round(pts, 1)})
+    if rows:
+        rows.sort(key=lambda r: -r["idp_pts"])
+        write_csv_dicts(ROOT / "out" / "idp.csv", rows, ["name", "position", "team", "idp_pts"])
+        print(f"IDP: wrote {len(rows)} players to out/idp.csv "
+              f"(top: {rows[0]['name']} {rows[0]['position']} {rows[0]['idp_pts']})")
 
 
 def main():
@@ -134,6 +152,7 @@ def main():
         for r in report[:8]:
             print(f"  [{r['source']}] {r['name']} ({r['position']}) {r['points']}")
         print("Fix important ones by adding rows to aliases.csv (wwo_name,fpid).")
+    write_idp()
 
 
 if __name__ == "__main__":

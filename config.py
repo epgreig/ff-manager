@@ -29,6 +29,18 @@ RESCALE_WWO = True
 # pipeline). Actual counts are limited by the candidate seed (FFC ADP + WWO).
 COUNTS = {"QB": 40, "RB": 70, "WR": 100, "TE": 40}
 
+# The WinWithOdds download in data/ (pinned by name — data/ also holds the
+# FantasyPros IDP CSVs, so "newest file" discovery is not safe).
+WWO_FILE = "season_long_proj_table.csv"
+
+# IDP scoring applied to the FantasyPros IDP CSVs (their FPTS column matches
+# no standard scoring). These are Yahoo's defaults from memory — VERIFY against
+# the league settings page, especially INT (2 vs 3).
+IDP_SCORING = {
+    "TACKLE": 1.0, "ASSIST": 0.5, "SACK": 2.0, "PD": 1.0,
+    "INT": 3.0, "FF": 2.0, "FR": 2.0, "TD": 6.0,
+}
+
 # WinWithOdds input: data/wwo.tsv (paste the copied table into a text file)
 # or data/wwo.html (saved page). Column auto-detection can be overridden here
 # with exact header names once we see the real file, e.g. {"name": "Player",

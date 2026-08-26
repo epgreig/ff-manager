@@ -101,12 +101,18 @@ def _detect_col(headers: list[str], preferred: str | None, needles: list[str]) -
     return None
 
 
-def find_wwo(data_dir: Path) -> Path | None:
-    """Locate the WinWithOdds download in data/ (any csv/tsv/html/txt file)."""
+def find_wwo(data_dir: Path, preferred: str | None = None) -> Path | None:
+    """Locate the WinWithOdds download in data/ (pinned name first, then any
+    csv/tsv/html/txt that isn't a FantasyPros download)."""
     if not data_dir.exists():
         return None
+    if preferred and (data_dir / preferred).exists():
+        return data_dir / preferred
     for pattern in ("*.csv", "*.tsv", "*.html", "*.txt"):
-        hits = sorted(data_dir.glob(pattern), key=lambda p: -p.stat().st_mtime)
+        hits = sorted(
+            (p for p in data_dir.glob(pattern) if not p.name.startswith("FantasyPros")),
+            key=lambda p: -p.stat().st_mtime,
+        )
         if hits:
             return hits[0]
     return None
