@@ -46,6 +46,9 @@ appears in any output file unless it came from a source.
   (offense + defense combined) is therefore UNKNOWN — the pipeline carries only
   his sourced offensive projection. Needs a real defensive projection source
   before any DB-slot comparison is made.
+  **TODO (Ethan):** find a defensive projection for Hunter — check whether FP's
+  DB page genuinely omits him or the CSV export dropped him, and try IDP-focused
+  sites; drop anything found into data/ as a small CSV.
 
 ## Notes
 
