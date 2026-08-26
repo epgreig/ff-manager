@@ -36,6 +36,25 @@ All in `config.py`: scoring format (std/ppr/half — must match the Yahoo league
 WWO blend weight, per-position candidate counts, optional per-position rescaling
 of WWO onto FP's level.
 
+## Draft sheet (Google Sheets)
+
+`sheet/Code.gs` builds the entire draft-day sheet programmatically. Setup:
+blank Google Sheet > Extensions > Apps Script > paste the file > run
+`buildSheet()` (authorize when prompted) > reload the sheet.
+
+Tabs: `Raw` (import blended.csv), `RawIDP` (import idp.csv), `Yahoo` (paste
+Name/Pos/XRank/ADP into B:E — column F reconciles each row against Master),
+`Params` (draft slot, sigma, XRank weight, replacement ranks), `Master` (the
+join + PAR + conditional P(available) at your next two snake picks), `Board`
+(four position panels + status block), `Targets` (fpid + target/upside/avoid —
+persists across data refreshes), `Log` (every pick, appended by the macros).
+
+During the draft: mark EVERY pick via the Draft Tools menu (select the player's
+row on Board, then "Mark drafted" or "Draft to MY team"). Nothing is deleted —
+panels filter the logged players out, and the log length drives the pick
+counter that P1/P2 condition on. Rerunning `buildSheet()` rebuilds formulas and
+formatting without touching Raw/Yahoo/Targets/Log data.
+
 ## Known data gaps
 
 Rule: missing data is flagged, never filled in with estimates. No number

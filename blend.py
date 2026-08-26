@@ -12,6 +12,7 @@ Writes:
 Usage: python3 blend.py
 """
 
+import json
 from collections import defaultdict
 
 import config
@@ -59,6 +60,17 @@ def main():
         r["fp_pts"] = float(r[fp_pts_col] or 0)
 
     aliases = load_aliases(ALIAS_PATH)
+
+    # Bye weeks + FFC ADP, joined by normalized name|pos from the cached FFC feed.
+    ffc_info = {}
+    ffc_path = ROOT / "fp_cache" / "ffc_adp.json"
+    if ffc_path.exists():
+        pos_map = {"DEF": "DST", "PK": "K"}
+        for p in json.loads(ffc_path.read_text()).get("players", []):
+            pos = pos_map.get(p["position"], p["position"])
+            ffc_info[player_key(p["name"], pos)] = (p.get("bye", ""), p.get("adp", ""))
+    else:
+        print("No fp_cache/ffc_adp.json yet (written by fetch_fp.py) — bye/ffc_adp will be blank.")
 
     wwo = load_wwo()
     if wwo is None:
@@ -118,8 +130,10 @@ def main():
             blend, src = r["fp_pts"], "fp_only"
         else:
             blend, src = w_wwo * wp + (1 - w_wwo) * r["fp_pts"], "blend"
+        bye, fadp = ffc_info.get(player_key(r["name"], r["position"]), ("", ""))
         out_rows.append({
             "fpid": r["fpid"], "name": r["name"], "position": r["position"], "team": r["team"],
+            "bye": bye, "ffc_adp": fadp,
             "fp_pts": round(r["fp_pts"], 1),
             "wwo_pts": "" if wp is None else round(wp, 1),
             "blend_pts": round(blend, 1), "source": src,
@@ -128,8 +142,11 @@ def main():
         })
     out_rows.sort(key=lambda r: -r["blend_pts"])
     write_csv_dicts(OUT_PATH, out_rows,
-                    ["fpid", "name", "position", "team", "fp_pts", "wwo_pts", "blend_pts",
-                     "source", "diff", "wwo_7d_delta"])
+                    ["fpid", "name", "position", "team", "bye", "ffc_adp", "fp_pts", "wwo_pts",
+                     "blend_pts", "source", "diff", "wwo_7d_delta"])
+    no_bye = sum(1 for r in out_rows if r["bye"] == "")
+    if no_bye:
+        print(f"{no_bye} players without bye/ffc_adp (not in FFC's ~230-player feed — fine for deep names)")
 
     # Unmatched report, biggest projections first. FP side only flags players
     # WWO should plausibly cover (offense with meaningful points).

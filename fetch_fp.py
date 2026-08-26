@@ -63,7 +63,9 @@ def candidate_names() -> dict[str, list[str]]:
             seen.add(key)
 
     print("Fetching FFC ADP for candidate seeding...")
-    ffc = json.loads(http_get(FFC_URL))
+    raw = http_get(FFC_URL)
+    (CACHE / "ffc_adp.json").write_bytes(raw)  # blend.py joins bye + ADP from this
+    ffc = json.loads(raw)
     for p in sorted(ffc["players"], key=lambda p: p["adp"]):
         add(p["name"], p["position"])
 
