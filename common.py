@@ -25,6 +25,15 @@ def player_key(name: str, position: str) -> str:
     return f"{norm_name(name)}|{position.upper()}"
 
 
+def load_aliases(path: Path = ROOT / "aliases.csv") -> dict[str, str]:
+    """source_name -> fpid overrides, keyed by normalized name. Used by both
+    the fetcher (candidate mapping) and the blender (WWO matching)."""
+    if not path.exists():
+        return {}
+    with open(path, newline="") as f:
+        return {norm_name(r["source_name"]): r["fpid"] for r in csv.DictReader(f) if r.get("fpid")}
+
+
 def load_env(path: Path = ROOT / ".env") -> dict:
     env = {}
     if path.exists():

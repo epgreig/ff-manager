@@ -19,7 +19,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import config
-from common import ROOT, find_wwo, http_get, load_env, norm_name, parse_wwo, read_csv_dicts, write_csv_dicts
+from common import (ROOT, find_wwo, http_get, load_aliases, load_env, norm_name, parse_wwo,
+                    read_csv_dicts, write_csv_dicts)
 
 API = "https://api.fantasypros.com/public/v2/json/nfl"
 DP_URL = "https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv"
@@ -137,16 +138,21 @@ def main():
     dp = dp_id_map()
     cands = candidate_names()
 
+    aliases = load_aliases()
     fpids, unmapped = [], []
     for pos, names in cands.items():
         for name in names:
+            if norm_name(name) in aliases:
+                fpids.append(aliases[norm_name(name)])
+                continue
             row = dp.get(f"{norm_name(name)}|{pos}")
             if row:
                 fpids.append(row["fantasypros_id"])
             else:
                 unmapped.append(f"{name} ({pos})")
     if unmapped:
-        print(f"Not in DP ID map (skipped): {', '.join(unmapped)}")
+        print(f"UNMAPPED — not in DP ID map or aliases.csv, will NOT be fetched: {', '.join(unmapped)}")
+        print("  -> reconcile by adding rows to aliases.csv (source_name,fpid)")
 
     print(f"Candidate pool: {len(fpids)} offensive players + top-10 K/DST")
 
@@ -205,6 +211,11 @@ def main():
     )
     if complete:
         STAMP_PATH.write_text(str(date.today()))
+        # Reconciliation: every requested id must have come back.
+        lost = [fid for fid in set(fpids) if int(fid) not in players]
+        if lost:
+            print(f"RECONCILIATION FAILURE: {len(lost)} requested fpids not returned "
+                  f"by the API: {', '.join(lost)} — investigate before trusting the output.")
     from collections import Counter
 
     print(f"Wrote {len(rows)} players to {OUT_PATH}{'' if complete else ' (PARTIAL)'}")

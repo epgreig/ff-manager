@@ -15,7 +15,8 @@ Usage: python3 blend.py
 from collections import defaultdict
 
 import config
-from common import ROOT, find_wwo, parse_wwo, player_key, read_csv_dicts, write_csv_dicts
+from common import (ROOT, find_wwo, load_aliases, norm_name, parse_wwo, player_key,
+                    read_csv_dicts, write_csv_dicts)
 
 FP_PATH = ROOT / "fp_cache" / "fp_projections.csv"
 ALIAS_PATH = ROOT / "aliases.csv"
@@ -57,9 +58,7 @@ def main():
     for r in fp:
         r["fp_pts"] = float(r[fp_pts_col] or 0)
 
-    aliases = {}
-    if ALIAS_PATH.exists():
-        aliases = {r["wwo_name"]: r["fpid"] for r in read_csv_dicts(ALIAS_PATH) if r.get("fpid")}
+    aliases = load_aliases(ALIAS_PATH)
 
     wwo = load_wwo()
     if wwo is None:
@@ -78,8 +77,8 @@ def main():
     wwo_unmatched = []
     for w in wwo:
         row = None
-        if w["name"] in aliases:
-            row = by_fpid.get(aliases[w["name"]])
+        if norm_name(w["name"]) in aliases:
+            row = by_fpid.get(aliases[norm_name(w["name"])])
         if row is None:
             hits = by_key.get(player_key(w["name"], w["position"]), [])
             if not hits:
@@ -151,7 +150,7 @@ def main():
         print(f"Unmatched report: {len(report)} rows in {UNMATCHED_PATH} — top of list:")
         for r in report[:8]:
             print(f"  [{r['source']}] {r['name']} ({r['position']}) {r['points']}")
-        print("Fix important ones by adding rows to aliases.csv (wwo_name,fpid).")
+        print("Fix important ones by adding rows to aliases.csv (source_name,fpid).")
     write_idp()
 
 

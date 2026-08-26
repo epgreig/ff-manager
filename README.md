@@ -15,7 +15,7 @@ Then in Google Sheets: File > Import > Upload `out/blended.csv` > Replace data
 at selected cell (on the raw import tab).
 
 After `blend.py`, glance at the top of `out/unmatched.csv`. If an important
-player failed to match, add a row to `aliases.csv` (`wwo_name,fpid` — the fpid
+player failed to match, add a row to `aliases.csv` (`source_name,fpid` — the fpid
 is in `out/blended.csv`) and rerun `blend.py`. Aliases persist forever; each
 mismatch is fixed exactly once.
 
