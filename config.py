@@ -34,11 +34,12 @@ COUNTS = {"QB": 40, "RB": 70, "WR": 100, "TE": 40}
 WWO_FILE = "season_long_proj_table.csv"
 
 # IDP scoring applied to the FantasyPros IDP CSVs (their FPTS column matches
-# no standard scoring). These are Yahoo's defaults from memory — VERIFY against
-# the league settings page, especially INT (2 vs 3).
+# no standard scoring). Confirmed from league settings 2026-08-25 — customized
+# above Yahoo defaults: sack 3 (not 2), INT 4 (not 3). Safety 4, block kick 2,
+# XP returned 4 are also in the league rules but FP doesn't project them.
 IDP_SCORING = {
-    "TACKLE": 1.0, "ASSIST": 0.5, "SACK": 2.0, "PD": 1.0,
-    "INT": 3.0, "FF": 2.0, "FR": 2.0, "TD": 6.0,
+    "TACKLE": 1.0, "ASSIST": 0.5, "SACK": 3.0, "PD": 1.0,
+    "INT": 4.0, "FF": 2.0, "FR": 2.0, "TD": 6.0,
 }
 
 # WinWithOdds input: data/wwo.tsv (paste the copied table into a text file)
