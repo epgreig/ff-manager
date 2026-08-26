@@ -1,0 +1,6 @@
+.env
+fp_cache/
+out/
+data/
+__pycache__/
+.DS_Store
