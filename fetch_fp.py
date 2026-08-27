@@ -5,11 +5,14 @@ reaches any player, so we batch 10 IDs per request. Candidate players are
 seeded from FantasyFootballCalculator ADP plus (when present) the WinWithOdds
 table, and mapped to FantasyPros IDs via the DynastyProcess ID database.
 
-Spends API quota (50 requests/day): ~1 request per 10 offensive candidates
-plus 2 for K/DST. A same-day compiled cache short-circuits the fetch; use
---force to refetch anyway.
+Spends API quota (~50 requests/day, reset timing unclear): ~1 request per 10
+offensive candidates plus 2 for K/DST.
 
-Usage: python3 fetch_fp.py [--force]
+Usage: python3 fetch_fp.py --full   # refetch everything, ignoring cached batches
+       python3 fetch_fp.py --cache  # no network at all: compile from cached batches
+With no flag, prompts for one of the two. A --full run that dies to quota can
+be rerun: batches it already fetched today are served from disk without
+re-spending, so it resumes where it died.
 """
 
 import json
@@ -32,7 +35,6 @@ FFC_URL = (
 CACHE = ROOT / "fp_cache"
 DP_PATH = CACHE / "dp_ids.csv"
 OUT_PATH = CACHE / "fp_projections.csv"
-STAMP_PATH = CACHE / "fp_projections.date"
 
 OFFENSE = ("QB", "RB", "WR", "TE")
 
@@ -84,21 +86,21 @@ class QuotaExhausted(Exception):
     pass
 
 
-def api_get(path_and_query: str, key: str) -> dict:
-    """API call with disk cache so crashes/reruns never re-spend quota.
-
-    The free tier allows ~50 requests per rolling 24h window; past the limit
-    the API returns empty count:0 responses, then hard 429s. Both raise
-    QuotaExhausted so the caller can compile a partial result and resume later.
-    Cached batches are reused for 24h (keyed by fetch date).
+def api_get(path_and_query: str, key: str, reuse_secs: int = 1800) -> dict:
+    """API call with a short-lived disk cache: a quota-killed run rerun within
+    reuse_secs resumes without re-spending, while a deliberate later --full
+    genuinely refetches. Past the quota the API returns empty count:0
+    responses, then hard 429s; both raise QuotaExhausted so the caller can
+    compile a partial result and resume later.
     """
     import hashlib
+    import time as _t
     import urllib.error
 
-    cache_file = CACHE / "batches" / f"{date.today()}_{hashlib.md5(path_and_query.encode()).hexdigest()[:12]}.json"
-    yesterday_file = Path(str(cache_file).replace(str(date.today()), str(date.today() - timedelta(days=1))))
-    for f in (cache_file, yesterday_file):
-        if f.exists():
+    h = hashlib.md5(path_and_query.encode()).hexdigest()[:12]
+    cache_file = CACHE / "batches" / f"{date.today()}_{h}.json"
+    for f in (CACHE / "batches").glob(f"*_{h}.json") if (CACHE / "batches").exists() else []:
+        if _t.time() - f.stat().st_mtime < reuse_secs:
             return json.loads(f.read_text())
     try:
         resp = json.loads(http_get(f"{API}/{path_and_query}", headers={"x-api-key": key}))
@@ -127,10 +129,60 @@ def flatten(player: dict) -> dict:
     }
 
 
+def pick_mode() -> str:
+    if "--full" in sys.argv:
+        return "full"
+    if "--cache" in sys.argv:
+        return "cache"
+    try:
+        ans = input("Mode — 'full' (refetch everything from the API) or 'cache' (no network, compile from cached batches)? ").strip().lower()
+    except EOFError:
+        ans = ""
+    if ans in ("full", "f"):
+        return "full"
+    if ans in ("cache", "c"):
+        return "cache"
+    raise SystemExit("Pick one: python3 fetch_fp.py --full | --cache")
+
+
+def compile_and_write(players: dict, complete: bool):
+    rows = sorted(players.values(), key=lambda r: (r["position"], -float(r["points_half"] or 0)))
+    write_csv_dicts(
+        OUT_PATH, rows,
+        ["fpid", "name", "position", "team", "points_std", "points_ppr", "points_half"],
+    )
+    from collections import Counter
+
+    print(f"Wrote {len(rows)} players to {OUT_PATH}{'' if complete else ' (PARTIAL)'}")
+    print("  by position:", dict(Counter(r["position"] for r in rows)))
+
+
+def load_batch_cache() -> tuple[dict, dict]:
+    """(fresh, stale) player dicts from every cached batch, split at 24h."""
+    import time as _t
+
+    fresh: dict[int, dict] = {}
+    stale: dict[int, dict] = {}
+    batches_dir = CACHE / "batches"
+    if batches_dir.exists():
+        for f in batches_dir.glob("*.json"):
+            target = fresh if _t.time() - f.stat().st_mtime < 86400 else stale
+            for p in json.loads(f.read_text()).get("players") or []:
+                target[p["fpid"]] = flatten(p)
+    return fresh, stale
+
+
 def main():
-    force = "--force" in sys.argv
-    if STAMP_PATH.exists() and STAMP_PATH.read_text().strip() == str(date.today()) and not force:
-        print(f"{OUT_PATH} already fetched today — skipping (use --force to refetch).")
+    mode = pick_mode()
+
+    if mode == "cache":
+        fresh, stale = load_batch_cache()
+        players = {**stale, **fresh}
+        if not players:
+            raise SystemExit("Batch cache is empty — nothing to compile. Run with --full.")
+        print(f"Compiling from cache only: {len(fresh)} fresh + "
+              f"{len(stale) - len(set(stale) & set(fresh))} stale-only players, no API calls.")
+        compile_and_write(players, complete=False)
         return
 
     key = load_env().get("FP_API_KEY")
@@ -158,70 +210,49 @@ def main():
 
     print(f"Candidate pool: {len(fpids)} offensive players + top-10 K/DST")
 
-    # Preload cached batches no matter which query produced them, so the cache
-    # is immune to candidate reordering between runs. Fresh (<24h) batches
-    # satisfy a player outright; older ones are kept as a fallback used only
-    # if the quota runs out before that player is refetched.
-    players: dict[int, dict] = {}
-    stale: dict[int, dict] = {}
-    batches_dir = CACHE / "batches"
-    if batches_dir.exists():
-        import time as _t
-        for f in batches_dir.glob("*.json"):
-            target = players if _t.time() - f.stat().st_mtime < 86400 else stale
-            for p in json.loads(f.read_text()).get("players") or []:
-                target[p["fpid"]] = flatten(p)
-    if players or stale:
-        print(f"Preloaded {len(players)} fresh + {len(stale)} stale players from batch cache")
+    # Full refetch: every candidate is requested fresh. The existing cache
+    # (any age) serves only as a fallback for players the quota cuts off.
+    fresh, cached = load_batch_cache()
+    fallback = {**cached, **fresh}
+    if fallback:
+        print(f"{len(fallback)} players held as cache fallback")
 
-    missing = sorted(fid for fid in set(fpids) if int(fid) not in players)
-    have_pos = {r["position"] for r in players.values()}
+    players: dict[int, dict] = {}
+    todo = sorted(set(fpids), key=int)
     complete = True
     queries = [
-        f"{config.SEASON}/projections?week=0&players={':'.join(missing[i:i + 10])}"
-        for i in range(0, len(missing), 10)
-    ] + [
-        f"{config.SEASON}/projections?week=0&position={pos}"
-        for pos in ("K", "DST") if pos not in have_pos
-    ]
-    print(f"{len(missing)} players missing -> {len(queries)} API requests needed")
+        f"{config.SEASON}/projections?week=0&players={':'.join(todo[i:i + 10])}"
+        for i in range(0, len(todo), 10)
+    ] + [f"{config.SEASON}/projections?week=0&position={pos}" for pos in ("K", "DST")]
+    print(f"Fetching {len(todo)} players + K/DST -> {len(queries)} API requests")
     for n, q in enumerate(queries):
         try:
             resp = api_get(q, key)
         except QuotaExhausted as e:
             complete = False
             print(f"\nAPI quota exhausted at batch {n + 1}/{len(queries)} ({e}).")
-            print("Compiling partial output; rerun fetch_fp.py after the 24h window rolls —")
-            print("cached batches are reused, only the missing ones will be requested.")
+            print("Compiling partial output. Rerun --full when quota allows: batches fetched")
+            print("in the last 30 minutes are served from disk, so it resumes where it died.")
             break
         for p in resp.get("players") or []:
             players[p["fpid"]] = flatten(p)
         time.sleep(0.4)
 
     filled = 0
-    for fid, p in stale.items():
+    for fid, p in fallback.items():
         if fid not in players:
             players[fid] = p
             filled += 1
     if filled:
-        print(f"Filled {filled} players from stale cache (older than 24h — refetch when quota allows)")
+        print(f"Filled {filled} players from cache fallback (not refreshed this run)")
 
-    rows = sorted(players.values(), key=lambda r: (r["position"], -float(r["points_half"] or 0)))
-    write_csv_dicts(
-        OUT_PATH, rows,
-        ["fpid", "name", "position", "team", "points_std", "points_ppr", "points_half"],
-    )
     if complete:
-        STAMP_PATH.write_text(str(date.today()))
         # Reconciliation: every requested id must have come back.
         lost = [fid for fid in set(fpids) if int(fid) not in players]
         if lost:
             print(f"RECONCILIATION FAILURE: {len(lost)} requested fpids not returned "
                   f"by the API: {', '.join(lost)} — investigate before trusting the output.")
-    from collections import Counter
-
-    print(f"Wrote {len(rows)} players to {OUT_PATH}{'' if complete else ' (PARTIAL)'}")
-    print("  by position:", dict(Counter(r["position"] for r in rows)))
+    compile_and_write(players, complete)
 
 
 if __name__ == "__main__":
