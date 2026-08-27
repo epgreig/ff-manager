@@ -194,14 +194,17 @@ def main():
 
     aliases = load_aliases()
     fpids, unmapped = [], []
+    id2name: dict[str, str] = {}
     for pos, names in cands.items():
         for name in names:
             if norm_name(name) in aliases:
                 fpids.append(aliases[norm_name(name)])
+                id2name[aliases[norm_name(name)]] = name
                 continue
             row = dp.get(f"{norm_name(name)}|{pos}")
             if row:
                 fpids.append(row["fantasypros_id"])
+                id2name[row["fantasypros_id"]] = name
             else:
                 unmapped.append(f"{name} ({pos})")
     if unmapped:
@@ -225,18 +228,36 @@ def main():
         for i in range(0, len(todo), 10)
     ] + [f"{config.SEASON}/projections?week=0&position={pos}" for pos in ("K", "DST")]
     print(f"Fetching {len(todo)} players + K/DST -> {len(queries)} API requests")
+    CANARY = "22968"  # Jahmyr Gibbs — always projected; distinguishes "no
+    no_proj: list[str] = []  # projections for this batch" from real quota death
     for n, q in enumerate(queries):
         try:
             resp = api_get(q, key)
         except QuotaExhausted as e:
+            canary_ok = False
+            if "players=" in q:
+                try:
+                    canary_ok = bool(api_get(
+                        f"{config.SEASON}/projections?week=0&players={CANARY}",
+                        key, reuse_secs=0).get("players"))
+                except QuotaExhausted:
+                    canary_ok = False
+            if canary_ok:
+                ids = q.split("players=")[1].split(":")
+                no_proj.extend(ids)
+                print(f"  batch {n + 1}: FP has no projections for: "
+                      + ", ".join(id2name.get(i, i) for i in ids))
+                continue
             complete = False
-            print(f"\nAPI quota exhausted at batch {n + 1}/{len(queries)} ({e}).")
+            print(f"\nAPI quota exhausted at batch {n + 1}/{len(queries)} ({e}; canary confirmed).")
             print("Compiling partial output. Rerun --full when quota allows: batches fetched")
             print("in the last 30 minutes are served from disk, so it resumes where it died.")
             break
         for p in resp.get("players") or []:
             players[p["fpid"]] = flatten(p)
         time.sleep(0.4)
+    if no_proj:
+        print(f"{len(no_proj)} candidates have no FP projection (named above) — excluded, not errors.")
 
     filled = 0
     for fid, p in fallback.items():
@@ -247,11 +268,13 @@ def main():
         print(f"Filled {filled} players from cache fallback (not refreshed this run)")
 
     if complete:
-        # Reconciliation: every requested id must have come back.
-        lost = [fid for fid in set(fpids) if int(fid) not in players]
+        # Reconciliation: every requested id must have come back or be
+        # explicitly accounted for as projection-less.
+        lost = [fid for fid in set(fpids) if int(fid) not in players and fid not in no_proj]
         if lost:
-            print(f"RECONCILIATION FAILURE: {len(lost)} requested fpids not returned "
-                  f"by the API: {', '.join(lost)} — investigate before trusting the output.")
+            print(f"RECONCILIATION FAILURE: {len(lost)} requested fpids not returned by the API: "
+                  + ", ".join(f"{id2name.get(f, '?')} ({f})" for f in lost)
+                  + " — investigate before trusting the output.")
     compile_and_write(players, complete)
 
 
