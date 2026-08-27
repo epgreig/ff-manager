@@ -73,7 +73,8 @@ function ensureDataTabs_(ss) {
     targets.getRange('B2').setFormula('=IF($A2="","",IFNA(VLOOKUP($A2,Master!$A:$B,2,FALSE),"fpid not found"))');
     targets.getRange('B2:B2').autoFill(targets.getRange('B2:B100'), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
   }
-  var rule = SpreadsheetApp.newDataValidation().requireValueInList(['target', 'upside', 'avoid'], true).build();
+  var rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['high target', 'target', 'mild target', 'downside'], true).build();
   targets.getRange('C2:C100').setDataValidation(rule);
 
   var log = getOrCreate_(ss, 'Log');
@@ -186,15 +187,15 @@ function buildBoard_(ss) {
     var p1Range = b.getRange(BOARD_DATA_ROW, bs + 9, BOARD_ROWS, 2);
     b.getRange(BOARD_DATA_ROW, bs + 9, BOARD_ROWS, 2).setNumberFormat('0%');
 
-    rules.push(SpreadsheetApp.newConditionalFormatRule().setRanges([dataRange])
-      .whenFormulaSatisfied('=$' + tgt + BOARD_DATA_ROW + '="target"')
-      .setBackground('#fff2cc').build());
-    rules.push(SpreadsheetApp.newConditionalFormatRule().setRanges([dataRange])
-      .whenFormulaSatisfied('=$' + tgt + BOARD_DATA_ROW + '="upside"')
-      .setBackground('#d0e0f0').build());
-    rules.push(SpreadsheetApp.newConditionalFormatRule().setRanges([dataRange])
-      .whenFormulaSatisfied('=$' + tgt + BOARD_DATA_ROW + '="avoid"')
-      .setFontColor('#999999').build());
+    [['high target', '#f4cccc'],   // pale red
+     ['target', '#fce5cd'],        // pale orange
+     ['mild target', '#fff2cc'],   // pale yellow
+     ['downside', '#efefef'],      // pale grey
+    ].forEach(function (t) {
+      rules.push(SpreadsheetApp.newConditionalFormatRule().setRanges([dataRange])
+        .whenFormulaSatisfied('=$' + tgt + BOARD_DATA_ROW + '="' + t[0] + '"')
+        .setBackground(t[1]).build());
+    });
     rules.push(SpreadsheetApp.newConditionalFormatRule()
       .setRanges([b.getRange(BOARD_DATA_ROW, bs + 7, BOARD_ROWS, 1)])
       .whenFormulaSatisfied('=$' + par + BOARD_DATA_ROW + '=Params!$B$18')
