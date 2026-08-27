@@ -86,7 +86,8 @@ class QuotaExhausted(Exception):
     pass
 
 
-def api_get(path_and_query: str, key: str, reuse_secs: int = 1800) -> dict:
+def api_get(path_and_query: str, key: str, reuse_secs: int = 1800,
+            backoffs: tuple = (0, 4, 10)) -> dict:
     """API call with a short-lived disk cache: a quota-killed run rerun within
     reuse_secs resumes without re-spending, while a deliberate later --full
     genuinely refetches. Past the quota the API returns empty count:0
@@ -107,7 +108,7 @@ def api_get(path_and_query: str, key: str, reuse_secs: int = 1800) -> dict:
     # back empty or 429 without being a real quota problem. Back off and retry
     # a couple of times before concluding the quota is gone.
     last = ""
-    for attempt, backoff in enumerate((0, 4, 10)):
+    for attempt, backoff in enumerate(backoffs):
         if backoff:
             print(f"    (empty/429 response — backing off {backoff}s and retrying)")
             _t.sleep(backoff)
@@ -262,7 +263,9 @@ def main():
             canary_ok = False
             if canary_q:
                 try:
-                    canary_ok = bool(api_get(canary_q, key, reuse_secs=0).get("players"))
+                    # Single attempt: failed attempts appear to count against the
+                    # quota window too, so keep the death-confirmation cheap.
+                    canary_ok = bool(api_get(canary_q, key, reuse_secs=0, backoffs=(0,)).get("players"))
                 except QuotaExhausted:
                     canary_ok = False
             if canary_ok:
