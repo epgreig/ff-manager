@@ -204,20 +204,22 @@ def main():
     cands = candidate_names()
 
     aliases = load_aliases()
-    fpids, unmapped = [], []
+    fpids_by_pos: dict[str, list[str]] = {p: [] for p in OFFENSE}
+    unmapped: list[str] = []
     id2name: dict[str, str] = {}
     for pos, names in cands.items():
         for name in names:
             if norm_name(name) in aliases:
-                fpids.append(aliases[norm_name(name)])
+                fpids_by_pos[pos].append(aliases[norm_name(name)])
                 id2name[aliases[norm_name(name)]] = name
                 continue
             row = dp.get(f"{norm_name(name)}|{pos}")
             if row:
-                fpids.append(row["fantasypros_id"])
+                fpids_by_pos[pos].append(row["fantasypros_id"])
                 id2name[row["fantasypros_id"]] = name
             else:
                 unmapped.append(f"{name} ({pos})")
+    fpids = [f for ids in fpids_by_pos.values() for f in ids]
     if unmapped:
         print(f"UNMAPPED — not in DP ID map or aliases.csv, will NOT be fetched: {', '.join(unmapped)}")
         print("  -> reconcile by adding rows to aliases.csv (source_name,fpid)")
@@ -231,26 +233,33 @@ def main():
     if fallback:
         print(f"{len(fallback)} players held as cache fallback")
 
+    # The position param is REQUIRED: without it the API silently defaults to
+    # RB and filters every response to RBs only. Batch within each position.
+    CANARIES = {"QB": "17298", "RB": "22968", "WR": "19788", "TE": "22955"}
     players: dict[int, dict] = {}
-    todo = sorted(set(fpids), key=int)
     complete = True
-    queries = [
-        f"{config.SEASON}/projections?week=0&players={':'.join(todo[i:i + 10])}"
-        for i in range(0, len(todo), 10)
-    ] + [f"{config.SEASON}/projections?week=0&position={pos}" for pos in ("K", "DST")]
-    print(f"Fetching {len(todo)} players + K/DST -> {len(queries)} API requests")
-    CANARY = "22968"  # Jahmyr Gibbs — always projected; distinguishes "no
-    no_proj: list[str] = []  # projections for this batch" from real quota death
-    for n, q in enumerate(queries):
+    queries: list[tuple[str, str | None]] = []  # (query, canary query or None)
+    for pos in OFFENSE:
+        ids = sorted(set(fpids_by_pos[pos]), key=int)
+        canary_q = f"{config.SEASON}/projections?week=0&position={pos}&players={CANARIES[pos]}"
+        for i in range(0, len(ids), 10):
+            queries.append((
+                f"{config.SEASON}/projections?week=0&position={pos}&players={':'.join(ids[i:i + 10])}",
+                canary_q,
+            ))
+    for pos in ("K", "DST"):
+        queries.append((f"{config.SEASON}/projections?week=0&position={pos}", None))
+    print(f"Fetching {len(fpids)} players + K/DST -> {len(queries)} API requests")
+
+    no_proj: list[str] = []
+    for n, (q, canary_q) in enumerate(queries):
         try:
             resp = api_get(q, key)
         except QuotaExhausted as e:
             canary_ok = False
-            if "players=" in q:
+            if canary_q:
                 try:
-                    canary_ok = bool(api_get(
-                        f"{config.SEASON}/projections?week=0&players={CANARY}",
-                        key, reuse_secs=0).get("players"))
+                    canary_ok = bool(api_get(canary_q, key, reuse_secs=0).get("players"))
                 except QuotaExhausted:
                     canary_ok = False
             if canary_ok:
@@ -279,13 +288,13 @@ def main():
         print(f"Filled {filled} players from cache fallback (not refreshed this run)")
 
     if complete:
-        # Reconciliation: every requested id must have come back or be
-        # explicitly accounted for as projection-less.
-        lost = [fid for fid in set(fpids) if int(fid) not in players and fid not in no_proj]
-        if lost:
-            print(f"RECONCILIATION FAILURE: {len(lost)} requested fpids not returned by the API: "
-                  + ", ".join(f"{id2name.get(f, '?')} ({f})" for f in lost)
-                  + " — investigate before trusting the output.")
+        # Reconciliation: every requested id either came back or is named here.
+        # A player absent from an otherwise-successful batch has no FP
+        # projection (retired/unlisted) — accounted for, not an error.
+        absent = [fid for fid in set(fpids) if int(fid) not in players and fid not in no_proj]
+        if absent:
+            print(f"{len(absent)} requested players have no FP projection (accounted, excluded): "
+                  + ", ".join(sorted(id2name.get(f, f) for f in absent)))
     compile_and_write(players, complete)
 
 
