@@ -234,9 +234,12 @@ function buildBoard_(ss) {
       b.getRange(BOARD_DATA_ROW, bs + 9, blk.rows, 2).setNumberFormat('0%');
 
       var par = colLetter_(bs + 7);
+      // CF rules cannot reference another sheet directly; INDIRECT is the
+      // sanctioned workaround.
       rules.push(SpreadsheetApp.newConditionalFormatRule()
         .setRanges([b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1)])
-        .whenFormulaSatisfied('=$' + par + BOARD_DATA_ROW + '=Params!$B$18')
+        .whenFormulaSatisfied('=AND($' + par + BOARD_DATA_ROW + '<>"",$' + par + BOARD_DATA_ROW +
+          '=INDIRECT("Params!$B$18"))')
         .setBackground('#b4a7d6').build());
       rules.push(SpreadsheetApp.newConditionalFormatRule()
         .setRanges([b.getRange(BOARD_DATA_ROW, bs + 9, blk.rows, 2)])
