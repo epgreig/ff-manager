@@ -1,6 +1,10 @@
 .env
 fp_cache/
-out/
 data/
 __pycache__/
 .DS_Store
+
+# The sheet pulls these two over https, so they must be committed.
+out/*
+!out/blended.csv
+!out/idp.csv
