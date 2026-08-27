@@ -25,6 +25,77 @@ OUT_PATH = ROOT / "out" / "blended.csv"
 UNMATCHED_PATH = ROOT / "out" / "unmatched.csv"
 
 
+# Column layout of FantasyPros SITE csv exports (data/FantasyPros_*_{POS}.csv),
+# after Player,Team. Duplicate YDS/TDS headers force positional parsing.
+FP_CSV_LAYOUT = {
+    "QB": ["pass_att", "pass_cmp", "pass_yd", "pass_td", "int", "rush_att", "rush_yd", "rush_td", "fumble"],
+    "RB": ["rush_att", "rush_yd", "rush_td", "rec", "rec_yd", "rec_td", "fumble"],
+    "WR": ["rec", "rec_yd", "rec_td", "rush_att", "rush_yd", "rush_td", "fumble"],
+    "TE": ["rec", "rec_yd", "rec_td", "fumble"],
+}
+
+
+def _f(txt):
+    try:
+        return float(str(txt).replace(",", ""))
+    except ValueError:
+        return 0.0
+
+
+def fp_site_fallback(have_fpids, have_keys, aliases):
+    """Fill players missing from the API data using FP website CSV exports.
+
+    Points are computed from component stats under league scoring (never their
+    FPTS column, which is used only as a cross-check). Returns (rows, unmapped).
+    """
+    import csv as _csv
+
+    dp = {}
+    dp_path = ROOT / "fp_cache" / "dp_ids.csv"
+    if dp_path.exists():
+        for r in read_csv_dicts(dp_path):
+            if r.get("fantasypros_id", "").isdigit():
+                dp[f"{norm_name(r['name'])}|{r['position']}"] = r["fantasypros_id"]
+
+    rules = config.SCORING_RULES
+    added, unmapped = [], []
+    for pos, stat_cols in FP_CSV_LAYOUT.items():
+        path = ROOT / "data" / f"FantasyPros_Fantasy_Football_Projections_{pos}.csv"
+        if not path.exists():
+            continue
+        with open(path, newline="") as fh:
+            rows = list(_csv.reader(fh))
+        n_pos, max_err = 0, 0.0
+        for r in rows[1:]:
+            if len(r) < len(stat_cols) + 2 or not r[0].strip():
+                continue
+            name = r[0].strip()
+            vals = {c: _f(r[i + 2]) for i, c in enumerate(stat_cols)}
+            base = sum(vals.get(c, 0) * rules.get(c, 0) for c in stat_cols if c != "rec")
+            rec = vals.get("rec", 0.0)
+            std, half, ppr = base, base + 0.5 * rec, base + 1.0 * rec
+            max_err = max(max_err, abs(half - _f(r[-1])))
+            fpid = aliases.get(norm_name(name)) or dp.get(f"{norm_name(name)}|{pos}")
+            if fpid is None:
+                unmapped.append(f"{name} ({pos})")
+                continue
+            if fpid in have_fpids or player_key(name, pos) in have_keys:
+                continue  # API data wins
+            n_pos += 1
+            added.append({"fpid": fpid, "name": name, "position": pos, "team": r[1].strip(),
+                          "points_std": round(std, 1), "points_ppr": round(ppr, 1),
+                          "points_half": round(half, 1), "from_csv": True})
+        if n_pos:
+            import datetime
+            age = datetime.date.fromtimestamp(path.stat().st_mtime)
+            print(f"FP-site CSV fallback: {n_pos} {pos}s filled from {path.name} "
+                  f"(downloaded {age}) | max |computed-FPTS| = {max_err:.1f}")
+            if max_err > 3:
+                print(f"  WARNING: computed points diverge from the file's FPTS by up to "
+                      f"{max_err:.1f} — check the download's scoring setting.")
+    return added, unmapped
+
+
 def load_wwo():
     path = find_wwo(ROOT / "data", config.WWO_FILE)
     if path is None:
@@ -38,6 +109,8 @@ def write_idp():
     rows = []
     for path in sorted((ROOT / "data").glob("FantasyPros_*_Projections_*.csv")):
         pos = path.stem.rsplit("_", 1)[1]
+        if pos not in ("DB", "DL", "LB"):
+            continue  # offense/K/DST exports live in data/ too
         for r in read_csv_dicts(path):
             if not r.get("Player", "").strip():  # interleaved high/low rows
                 continue
@@ -55,11 +128,17 @@ def main():
     if not FP_PATH.exists():
         raise SystemExit("Run fetch_fp.py first — no fp_cache/fp_projections.csv")
     fp = read_csv_dicts(FP_PATH)
+    aliases = load_aliases(ALIAS_PATH)
+
+    csv_rows, csv_unmapped = fp_site_fallback(
+        {r["fpid"] for r in fp}, {player_key(r["name"], r["position"]) for r in fp}, aliases)
+    fp.extend(csv_rows)
+    if csv_unmapped:
+        print(f"FP-site CSV names not in DP map/aliases (skipped): {', '.join(csv_unmapped)}")
+
     fp_pts_col = f"points_{config.SCORING}"
     for r in fp:
         r["fp_pts"] = float(r[fp_pts_col] or 0)
-
-    aliases = load_aliases(ALIAS_PATH)
 
     # Bye weeks + FFC ADP, joined by normalized name|pos from the cached FFC feed.
     ffc_info = {}
@@ -130,6 +209,8 @@ def main():
             blend, src = r["fp_pts"], "fp_only"
         else:
             blend, src = w_wwo * wp + (1 - w_wwo) * r["fp_pts"], "blend"
+        if r.get("from_csv"):
+            src += "_csv"  # FP side came from the stale site download, not the API
         bye, fadp = ffc_info.get(player_key(r["name"], r["position"]), ("", ""))
         out_rows.append({
             "fpid": r["fpid"], "name": r["name"], "position": r["position"], "team": r["team"],
@@ -165,7 +246,7 @@ def main():
         ]
     write_csv_dicts(UNMATCHED_PATH, report, ["source", "name", "position", "points"])
 
-    n_blend = sum(1 for r in out_rows if r["source"] == "blend")
+    n_blend = sum(1 for r in out_rows if r["source"].startswith("blend"))
     print(f"\nWrote {len(out_rows)} players to {OUT_PATH} ({n_blend} blended, "
           f"{len(out_rows) - n_blend} single-source)")
     if report:
