@@ -15,12 +15,32 @@
  * break and targets persist because they're keyed by fpid, not row.
  */
 
-var POSITIONS = ['QB', 'RB', 'WR', 'TE'];
-var BLOCK_COLS = 12;          // fpid,Player,Tm,Bye,Pts,XRk,ADP,PAR,Diff,P1,P2,Tgt
+// Panel order and sourcing. 'master' panels (12 cols: fpid,Player,Tm,Bye,Pts,
+// XRk,ADP,PAR,Diff,P1,P2,Tgt) come from Master; 'idp' panels (4 cols: Player,
+// Tm,Pts,Tgt) come from MasterIDP.
+var BLOCKS = [
+  { pos: 'QB',  title: 'QB',  type: 'master', rows: 34 },
+  { pos: 'RB',  title: 'RB',  type: 'master', rows: 34 },
+  { pos: 'WR',  title: 'WR',  type: 'master', rows: 34 },
+  { pos: 'TE',  title: 'TE',  type: 'master', rows: 34 },
+  { pos: 'LB',  title: 'LB',  type: 'idp',    rows: 20 },
+  { pos: 'DB',  title: 'DB',  type: 'idp',    rows: 20 },
+  { pos: 'DL',  title: 'DL',  type: 'idp',    rows: 20 },
+  { pos: 'DST', title: 'DEF', type: 'master', rows: 12 },
+  { pos: 'K',   title: 'K',   type: 'master', rows: 12 },
+];
 var BLOCK_GAP = 1;
 var BOARD_DATA_ROW = 3;
-var BOARD_ROWS = 34;          // players shown per panel
 var MASTER_ROWS = 1200;
+
+function blockWidth_(b) { return b.type === 'master' ? 12 : 4; }
+
+function blockStarts_() {
+  var starts = [], c = 1;
+  BLOCKS.forEach(function (b) { starts.push(c); c += blockWidth_(b) + BLOCK_GAP; });
+  starts.push(c); // status block position
+  return starts;
+}
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Draft Tools')
@@ -37,6 +57,7 @@ function buildSheet() {
   ensureDataTabs_(ss);
   buildParams_(ss);
   buildMaster_(ss);
+  buildMasterIdp_(ss);
   buildBoard_(ss);
   ss.toast('Sheet built. Import blended.csv into Raw, paste Yahoo ranks, set your slot on Params.');
 }
@@ -70,7 +91,8 @@ function ensureDataTabs_(ss) {
   var targets = getOrCreate_(ss, 'Targets');
   targets.getRange('A1:C1').setValues([['fpid', 'Player (auto)', 'tag']]);
   if (targets.getLastRow() < 2) {
-    targets.getRange('B2').setFormula('=IF($A2="","",IFNA(VLOOKUP($A2,Master!$A:$B,2,FALSE),"fpid not found"))');
+    // fpid for offense/K/DEF; IDPs have no fpid, so their id IS the name.
+    targets.getRange('B2').setFormula('=IF($A2="","",IFNA(VLOOKUP($A2,Master!$A:$B,2,FALSE),$A2))');
     targets.getRange('B2:B2').autoFill(targets.getRange('B2:B100'), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
   }
   var rule = SpreadsheetApp.newDataValidation()
@@ -154,6 +176,25 @@ function buildMaster_(ss) {
   m.setFrozenRows(1);
 }
 
+// ---------- MasterIDP (mirror of RawIDP + drafted/tag, keyed by name) ----------
+
+function buildMasterIdp_(ss) {
+  var m = getOrCreate_(ss, 'MasterIDP');
+  m.clear();
+  m.getRange('A1:F1').setValues([['Player', 'Pos', 'Tm', 'Pts', 'Drafted', 'Tag']]);
+  m.getRange('A2').setFormula('={RawIDP!A2:D800}');
+  var f = {
+    E: '=IF($A2="","",COUNTIF(Log!$B:$B,$A2)>0)',
+    F: '=IF($A2="","",IFNA(VLOOKUP($A2,Targets!$A:$C,3,FALSE),""))',
+  };
+  for (var col in f) {
+    m.getRange(col + '2').setFormula(f[col]);
+    m.getRange(col + '2:' + col + '2').autoFill(m.getRange(col + '2:' + col + '800'),
+      SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
+  }
+  m.setFrozenRows(1);
+}
+
 // ---------- Board ----------
 
 function colLetter_(n) {
@@ -162,50 +203,63 @@ function colLetter_(n) {
   return s;
 }
 
-function blockStart_(i) { return 1 + i * (BLOCK_COLS + BLOCK_GAP); }
-
 function buildBoard_(ss) {
   var b = getOrCreate_(ss, 'Board');
   b.clear();
   b.clearConditionalFormatRules();
-  var headers = ['fpid', 'Player', 'Tm', 'Bye', 'Pts', 'XRk', 'ADP', 'PAR', 'Diff', 'P1', 'P2', 'Tgt'];
+  var masterHeaders = ['fpid', 'Player', 'Tm', 'Bye', 'Pts', 'XRk', 'ADP', 'PAR', 'Diff', 'P1', 'P2', 'Tgt'];
+  var idpHeaders = ['Player', 'Tm', 'Pts', 'Tgt'];
+  var starts = blockStarts_();
   var rules = [];
+  var tagColors = [
+    ['high target', '#f4cccc'],   // pale red
+    ['target', '#fce5cd'],        // pale orange
+    ['mild target', '#fff2cc'],   // pale yellow
+    ['downside', '#efefef'],      // pale grey
+  ];
 
-  POSITIONS.forEach(function (pos, i) {
-    var bs = blockStart_(i);
-    b.getRange(1, bs).setValue(pos).setFontWeight('bold').setFontSize(12);
-    b.getRange(2, bs, 1, BLOCK_COLS).setValues([headers]).setFontWeight('bold');
-    b.getRange(BOARD_DATA_ROW, bs).setFormula(
-      '=IFERROR(QUERY(Master!$A$2:$X,"select A,B,D,E,I,N,O,T,U,V,W,S where C=\'' + pos +
-      '\' and Q=false order by I desc limit ' + BOARD_ROWS + '",0),"")');
-    b.setColumnWidth(bs, 40);
-    b.setColumnWidth(bs + 1, 150);
-    b.getRange(1, bs, BOARD_ROWS + 2, 1).setFontColor('#bbbbbb').setFontSize(8);
+  BLOCKS.forEach(function (blk, i) {
+    var bs = starts[i];
+    var width = blockWidth_(blk);
+    b.getRange(1, bs).setValue(blk.title).setFontWeight('bold').setFontSize(12);
 
-    var dataRange = b.getRange(BOARD_DATA_ROW, bs, BOARD_ROWS, BLOCK_COLS);
-    var tgt = colLetter_(bs + 11), par = colLetter_(bs + 7);
-    var p1Range = b.getRange(BOARD_DATA_ROW, bs + 9, BOARD_ROWS, 2);
-    b.getRange(BOARD_DATA_ROW, bs + 9, BOARD_ROWS, 2).setNumberFormat('0%');
+    if (blk.type === 'master') {
+      b.getRange(2, bs, 1, width).setValues([masterHeaders]).setFontWeight('bold');
+      b.getRange(BOARD_DATA_ROW, bs).setFormula(
+        '=IFERROR(QUERY(Master!$A$2:$X,"select A,B,D,E,I,N,O,T,U,V,W,S where C=\'' + blk.pos +
+        '\' and Q=false order by I desc limit ' + blk.rows + '",0),"")');
+      b.setColumnWidth(bs, 40);
+      b.setColumnWidth(bs + 1, 150);
+      b.getRange(1, bs, blk.rows + 2, 1).setFontColor('#bbbbbb').setFontSize(8);
+      b.getRange(BOARD_DATA_ROW, bs + 9, blk.rows, 2).setNumberFormat('0%');
 
-    [['high target', '#f4cccc'],   // pale red
-     ['target', '#fce5cd'],        // pale orange
-     ['mild target', '#fff2cc'],   // pale yellow
-     ['downside', '#efefef'],      // pale grey
-    ].forEach(function (t) {
+      var par = colLetter_(bs + 7);
+      rules.push(SpreadsheetApp.newConditionalFormatRule()
+        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1)])
+        .whenFormulaSatisfied('=$' + par + BOARD_DATA_ROW + '=Params!$B$18')
+        .setBackground('#b4a7d6').build());
+      rules.push(SpreadsheetApp.newConditionalFormatRule()
+        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 9, blk.rows, 2)])
+        .setGradientMinpoint('#e06666').setGradientMaxpoint('#93c47d').build());
+    } else {
+      b.getRange(2, bs, 1, width).setValues([idpHeaders]).setFontWeight('bold');
+      b.getRange(BOARD_DATA_ROW, bs).setFormula(
+        '=IFERROR(QUERY(MasterIDP!$A$2:$F,"select A,C,D,F where B=\'' + blk.pos +
+        '\' and E=false order by D desc limit ' + blk.rows + '",0),"")');
+      b.setColumnWidth(bs, 150);
+    }
+
+    var dataRange = b.getRange(BOARD_DATA_ROW, bs, blk.rows, width);
+    var tgt = colLetter_(bs + width - 1);
+    tagColors.forEach(function (t) {
       rules.push(SpreadsheetApp.newConditionalFormatRule().setRanges([dataRange])
         .whenFormulaSatisfied('=$' + tgt + BOARD_DATA_ROW + '="' + t[0] + '"')
         .setBackground(t[1]).build());
     });
-    rules.push(SpreadsheetApp.newConditionalFormatRule()
-      .setRanges([b.getRange(BOARD_DATA_ROW, bs + 7, BOARD_ROWS, 1)])
-      .whenFormulaSatisfied('=$' + par + BOARD_DATA_ROW + '=Params!$B$18')
-      .setBackground('#b4a7d6').build());
-    rules.push(SpreadsheetApp.newConditionalFormatRule().setRanges([p1Range])
-      .setGradientMinpoint('#e06666').setGradientMaxpoint('#93c47d').build());
   });
 
   // Status block to the right of the panels.
-  var sc = blockStart_(POSITIONS.length);
+  var sc = starts[BLOCKS.length];
   b.getRange(1, sc, 4, 2).setValues([
     ['Current pick', ''], ['My next', ''], ['Then', ''], ['Max PAR', ''],
   ]);
@@ -232,18 +286,21 @@ function logPick_(mine) {
 
   if (sheet.getName() === 'Board') {
     if (cell.getRow() < BOARD_DATA_ROW) { ss.toast('Select a player row first.'); return; }
-    for (var i = 0; i < POSITIONS.length; i++) {
-      var bs = blockStart_(i);
-      if (cell.getColumn() >= bs && cell.getColumn() < bs + BLOCK_COLS) {
-        fpid = sheet.getRange(cell.getRow(), bs).getValue();
-        name = sheet.getRange(cell.getRow(), bs + 1).getValue();
+    var starts = blockStarts_();
+    for (var i = 0; i < BLOCKS.length; i++) {
+      if (cell.getColumn() >= starts[i] && cell.getColumn() < starts[i] + blockWidth_(BLOCKS[i])) {
+        fpid = sheet.getRange(cell.getRow(), starts[i]).getValue();
+        // IDP blocks have no fpid; their first column (the name) is the id.
+        name = BLOCKS[i].type === 'idp' ? fpid : sheet.getRange(cell.getRow(), starts[i] + 1).getValue();
       }
     }
   } else if (sheet.getName() === 'Master') {
     fpid = sheet.getRange(cell.getRow(), 1).getValue();
     name = sheet.getRange(cell.getRow(), 2).getValue();
+  } else if (sheet.getName() === 'MasterIDP') {
+    fpid = name = sheet.getRange(cell.getRow(), 1).getValue();
   } else {
-    ss.toast('Draft from the Board or Master tab.');
+    ss.toast('Draft from the Board, Master, or MasterIDP tab.');
     return;
   }
   if (!fpid) { ss.toast('No player on the selected row.'); return; }
