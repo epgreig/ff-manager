@@ -7,7 +7,7 @@ canonical table for import into the draft Google Sheet.
 ## Daily refresh
 
 ```
-python3 fetch_fp.py    # hits the FP API (~22-35 requests of the 50/day quota)
+python3 fetch_fp.py --cache   # fetch only missing/stale players (--full refetches all)
 python3 blend.py       # pure local: match, diagnose, blend
 ```
 

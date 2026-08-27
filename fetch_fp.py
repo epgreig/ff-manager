@@ -9,9 +9,9 @@ Spends API quota (~50 requests/day, reset timing unclear): ~1 request per 10
 offensive candidates plus 2 for K/DST.
 
 Usage: python3 fetch_fp.py --full   # refetch everything, ignoring cached batches
-       python3 fetch_fp.py --cache  # no network at all: compile from cached batches
-With no flag, prompts for one of the two. A --full run that dies to quota can
-be rerun: batches it already fetched today are served from disk without
+       python3 fetch_fp.py --cache  # reuse fresh (<24h) cache; fetch only missing/stale players
+With no flag, prompts for one of the two. Either mode, killed by quota, can be
+rerun: batches fetched in the last 30 minutes are served from disk without
 re-spending, so it resumes where it died.
 """
 
@@ -146,7 +146,7 @@ def pick_mode() -> str:
     if "--cache" in sys.argv:
         return "cache"
     try:
-        ans = input("Mode — 'full' (refetch everything from the API) or 'cache' (no network, compile from cached batches)? ").strip().lower()
+        ans = input("Mode — 'full' (refetch everything) or 'cache' (reuse fresh cache, fetch only missing/stale)? ").strip().lower()
     except EOFError:
         ans = ""
     if ans in ("full", "f"):
@@ -186,16 +186,6 @@ def load_batch_cache() -> tuple[dict, dict]:
 def main():
     mode = pick_mode()
 
-    if mode == "cache":
-        fresh, stale = load_batch_cache()
-        players = {**stale, **fresh}
-        if not players:
-            raise SystemExit("Batch cache is empty — nothing to compile. Run with --full.")
-        print(f"Compiling from cache only: {len(fresh)} fresh + "
-              f"{len(stale) - len(set(stale) & set(fresh))} stale-only players, no API calls.")
-        compile_and_write(players, complete=False)
-        return
-
     key = load_env().get("FP_API_KEY")
     if not key:
         raise SystemExit("FP_API_KEY missing from .env")
@@ -226,30 +216,43 @@ def main():
 
     print(f"Candidate pool: {len(fpids)} offensive players + top-10 K/DST")
 
-    # Full refetch: every candidate is requested fresh. The existing cache
-    # (any age) serves only as a fallback for players the quota cuts off.
-    fresh, cached = load_batch_cache()
-    fallback = {**cached, **fresh}
-    if fallback:
-        print(f"{len(fallback)} players held as cache fallback")
+    fresh, stale = load_batch_cache()
+    if mode == "cache":
+        # Incremental: fresh (<24h) cache satisfies a player outright; only
+        # missing or stale players are requested. Stale copies remain the
+        # fallback if quota dies before they're refreshed.
+        players: dict[int, dict] = dict(fresh)
+        fallback = dict(stale)
+        print(f"Cache mode: {len(players)} fresh players reused; fetching only missing/stale")
+    else:
+        # Full refetch: every candidate is requested fresh. The existing cache
+        # (any age) serves only as a fallback for players the quota cuts off.
+        players = {}
+        fallback = {**stale, **fresh}
+        if fallback:
+            print(f"{len(fallback)} players held as cache fallback")
 
     # The position param is REQUIRED: without it the API silently defaults to
     # RB and filters every response to RBs only. Batch within each position.
     CANARIES = {"QB": "17298", "RB": "22968", "WR": "19788", "TE": "22955"}
-    players: dict[int, dict] = {}
     complete = True
     queries: list[tuple[str, str | None]] = []  # (query, canary query or None)
+    n_todo = 0
     for pos in OFFENSE:
-        ids = sorted(set(fpids_by_pos[pos]), key=int)
+        ids = [i for i in sorted(set(fpids_by_pos[pos]), key=int) if int(i) not in players]
+        n_todo += len(ids)
         canary_q = f"{config.SEASON}/projections?week=0&position={pos}&players={CANARIES[pos]}"
         for i in range(0, len(ids), 10):
             queries.append((
                 f"{config.SEASON}/projections?week=0&position={pos}&players={':'.join(ids[i:i + 10])}",
                 canary_q,
             ))
+    have_pos = {r["position"] for r in players.values()}
     for pos in ("K", "DST"):
-        queries.append((f"{config.SEASON}/projections?week=0&position={pos}", None))
-    print(f"Fetching {len(fpids)} players + K/DST -> {len(queries)} API requests")
+        if pos not in have_pos:
+            queries.append((f"{config.SEASON}/projections?week=0&position={pos}", None))
+    print(f"Fetching {n_todo} players{' + K/DST' if len(queries) > n_todo // 10 else ''} "
+          f"-> {len(queries)} API requests")
 
     no_proj: list[str] = []
     for n, (q, canary_q) in enumerate(queries):
