@@ -102,17 +102,28 @@ def api_get(path_and_query: str, key: str, reuse_secs: int = 1800) -> dict:
     for f in (CACHE / "batches").glob(f"*_{h}.json") if (CACHE / "batches").exists() else []:
         if _t.time() - f.stat().st_mtime < reuse_secs:
             return json.loads(f.read_text())
-    try:
-        resp = json.loads(http_get(f"{API}/{path_and_query}", headers={"x-api-key": key}))
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            raise QuotaExhausted("HTTP 429") from e
-        raise
-    if not resp.get("players"):
-        raise QuotaExhausted(f"empty response (count={resp.get('count')})")
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    cache_file.write_text(json.dumps(resp))
-    return resp
+
+    # The API appears to throttle (~1 req/sec): an over-pace request can come
+    # back empty or 429 without being a real quota problem. Back off and retry
+    # a couple of times before concluding the quota is gone.
+    last = ""
+    for attempt, backoff in enumerate((0, 4, 10)):
+        if backoff:
+            print(f"    (empty/429 response — backing off {backoff}s and retrying)")
+            _t.sleep(backoff)
+        try:
+            resp = json.loads(http_get(f"{API}/{path_and_query}", headers={"x-api-key": key}))
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                last = "HTTP 429"
+                continue
+            raise
+        if resp.get("players"):
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps(resp))
+            return resp
+        last = f"empty response (count={resp.get('count')})"
+    raise QuotaExhausted(f"{last} after retries with backoff")
 
 
 def flatten(player: dict) -> dict:
@@ -255,7 +266,7 @@ def main():
             break
         for p in resp.get("players") or []:
             players[p["fpid"]] = flatten(p)
-        time.sleep(0.4)
+        time.sleep(1.5)  # stay safely under the ~1 req/sec throttle
     if no_proj:
         print(f"{len(no_proj)} candidates have no FP projection (named above) — excluded, not errors.")
 
