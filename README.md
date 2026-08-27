@@ -7,12 +7,17 @@ canonical table for import into the draft Google Sheet.
 ## Daily refresh
 
 ```
-python3 fetch_fp.py --cache   # fetch only missing/stale players (--full refetches all)
-python3 blend.py       # pure local: match, diagnose, blend
+./refresh.sh          # fetch (missing/stale only) -> blend -> commit -> push
+./refresh.sh --full   # same, but refetch every player from the API
 ```
 
-Then in Google Sheets: File > Import > Upload `out/blended.csv` > Replace data
-at selected cell (on the raw import tab).
+Then in the sheet: **Draft Tools > Refresh data from GitHub**. The script
+publishes `out/blended.csv` and `out/idp.csv` to this repo and the sheet pulls
+them over https — no manual File > Import.
+
+(That means the blended projections are public in this repo. To keep them
+private instead, make the repo private and swap `refreshData()` to hit the
+GitHub API with a token stored in Script Properties.)
 
 After `blend.py`, glance at the top of `out/unmatched.csv`. If an important
 player failed to match, add a row to `aliases.csv` (`source_name,fpid` — the fpid
@@ -42,7 +47,13 @@ of WWO onto FP's level.
 blank Google Sheet > Extensions > Apps Script > paste the file > run
 `buildSheet()` (authorize when prompted) > reload the sheet.
 
-Tabs: `Raw` (import blended.csv), `RawIDP` (import idp.csv), `Yahoo` (paste
+To iterate on the script from this repo instead of copy-pasting, install
+[clasp](https://github.com/google/clasp): `npm i -g @google/clasp`,
+`clasp login`, then in `sheet/` run `clasp clone <scriptId>` (Apps Script
+editor > Project Settings > Script ID). After that `clasp push` deploys edits
+straight into the sheet.
+
+Tabs: `Raw` (blended.csv), `RawIDP` (idp.csv), `Yahoo` (paste
 Name/Pos/XRank/ADP into B:E — column F reconciles each row against Master),
 `Params` (draft slot, sigma, XRank weight, replacement ranks), `Master` (the
 join + PAR + conditional P(available) at your next two snake picks), `Board`
