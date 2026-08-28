@@ -19,21 +19,21 @@
 // XRk,ADP,PAR,Diff,P1,P2,Tgt) come from Master; 'idp' panels (4 cols: Player,
 // Tm,Pts,Tgt) come from MasterIDP.
 var BLOCKS = [
-  { pos: 'QB',  title: 'QB',  type: 'master', rows: 34 },
-  { pos: 'RB',  title: 'RB',  type: 'master', rows: 34 },
-  { pos: 'WR',  title: 'WR',  type: 'master', rows: 34 },
-  { pos: 'TE',  title: 'TE',  type: 'master', rows: 34 },
-  { pos: 'LB',  title: 'LB',  type: 'idp',    rows: 20 },
-  { pos: 'DB',  title: 'DB',  type: 'idp',    rows: 20 },
-  { pos: 'DL',  title: 'DL',  type: 'idp',    rows: 20 },
-  { pos: 'DST', title: 'DEF', type: 'master', rows: 12 },
-  { pos: 'K',   title: 'K',   type: 'master', rows: 12 },
+  { pos: 'QB',  title: 'QB',  type: 'master', rows: 40 },
+  { pos: 'RB',  title: 'RB',  type: 'master', rows: 70 },
+  { pos: 'WR',  title: 'WR',  type: 'master', rows: 90 },
+  { pos: 'TE',  title: 'TE',  type: 'master', rows: 50 },
+  { pos: 'LB',  title: 'LB',  type: 'idp',    rows: 30 },
+  { pos: 'DB',  title: 'DB',  type: 'idp',    rows: 30 },
+  { pos: 'DL',  title: 'DL',  type: 'idp',    rows: 30 },
+  { pos: 'DST', title: 'DEF', type: 'master', rows: 14 },
+  { pos: 'K',   title: 'K',   type: 'master', rows: 14 },
 ];
 var BLOCK_GAP = 1;
 var TITLE_ROW = 6;        // summary block lives in rows 1-4
 var HEADER_ROW = 7;
 var BOARD_DATA_ROW = 8;
-var PARAMS_POS_ROW = { QB: 8, RB: 9, WR: 10, TE: 11, K: 12, DST: 13 };
+var PARAMS_POS_ROW = { QB: 8, RB: 9, WR: 10, TE: 11, K: 12, DST: 13, LB: 14, DB: 15, DL: 16 };
 
 // Conditional-format tuning. Rank columns (XRk/ADP): colour is strongest at
 // the best rank, half-faded by CF_RANK_MID percentile, white by CF_RANK_FADE.
@@ -48,8 +48,8 @@ var DATA_URLS = {
   RawIDP: 'https://raw.githubusercontent.com/epgreig/ff-manager/master/out/idp.csv',
 };
 
-// master block: [#, fpid(hidden), Player, Tm, Bye, Pts, XRk, ADP, PAR, P1, P2, Tgt, Diff]
-function blockWidth_(b) { return b.type === 'master' ? 13 : 4; }
+// master block: [#, fpid(hidden), Player, Tm, Bye, XRk, ADP, PAR, P1, P2, Tgt, Diff]
+function blockWidth_(b) { return b.type === 'master' ? 12 : 4; }
 
 function blockStarts_() {
   var starts = [], c = 1;
@@ -135,14 +135,18 @@ function buildParams_(ss) {
   ]);
   p.getRange('A7:D7').setValues([['Pos', 'repl rank', 'x before my next', 'baseline pts']])
     .setFontWeight('bold');
-  p.getRange('A8:C13').setValues([
-    ['QB', 12, 2], ['RB', 26, 4], ['WR', 40, 5], ['TE', 12, 2], ['K', 10, 0], ['DST', 10, 0],
+  p.getRange('A8:C16').setValues([
+    ['QB', 22, 2], ['RB', 26, 4], ['WR', 40, 5], ['TE', 12, 2], ['K', 10, 0], ['DST', 10, 0],
+    ['LB', 12, 0], ['DB', 12, 0], ['DL', 12, 0],
   ]);
   p.getRange('H7:I7').setValues([['1-gap', 'x-gap']]).setFontWeight('bold');
-  for (var i = 0; i < 6; i++) {
+  for (var i = 0; i < 9; i++) {
     var r = 8 + i;
-    p.getRange(r, 4).setFormula(
-      '=IFERROR(LARGE(FILTER(Master!$I$2:$I,Master!$C$2:$C=$A' + r + '),$B' + r + '),0)');
+    // Offence/K/DEF baselines come from Master, the three IDP slots from MasterIDP.
+    p.getRange(r, 4).setFormula(r >= 14
+      ? '=IFERROR(LARGE(FILTER(MasterIDP!$D$2:$D,MasterIDP!$B$2:$B=$A' + r + '),$B' + r + '),0)'
+      : '=IFERROR(LARGE(FILTER(Master!$I$2:$I,Master!$C$2:$C=$A' + r + '),$B' + r + '),0)');
+    if (r >= 14) continue;  // gaps only apply to the drafted-early positions
     p.getRange(r, 8).setFormula(
       '=IFERROR(LET(v,SORT(FILTER(Master!$T$2:$T,Master!$C$2:$C=$A' + r +
       ',Master!$Q$2:$Q=FALSE),1,FALSE),ROUND(INDEX(v,1)-INDEX(v,2),0)),"")');
@@ -150,18 +154,18 @@ function buildParams_(ss) {
       '=IFERROR(LET(v,SORT(FILTER(Master!$T$2:$T,Master!$C$2:$C=$A' + r +
       ',Master!$Q$2:$Q=FALSE),1,FALSE),ROUND(INDEX(v,1)-INDEX(v,MIN($C' + r + '+1,ROWS(v))),0)),"")');
   }
-  p.getRange('A15:A18').setValues([['Current pick'], ['My next pick'], ['My pick after'], ['Max PAR remaining']]);
-  p.getRange('B15').setFormula('=COUNTA(Log!$B$2:$B)+1');
-  p.getRange('B16').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>=$B$15)),999)');
-  p.getRange('B17').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>$B$16)),999)');
-  p.getRange('B18').setFormula('=IFERROR(MAX(FILTER(Master!$T$2:$T,Master!$Q$2:$Q=FALSE)),"")');
+  p.getRange('A19:A22').setValues([['Current pick'], ['My next pick'], ['My pick after'], ['Max PAR remaining']]);
+  p.getRange('B19').setFormula('=COUNTA(Log!$B$2:$B)+1');
+  p.getRange('B20').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>=$B$19)),999)');
+  p.getRange('B21').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>$B$20)),999)');
+  p.getRange('B22').setFormula('=IFERROR(MAX(FILTER(Master!$T$2:$T,Master!$Q$2:$Q=FALSE)),"")');
   p.getRange('E1:F1').setValues([['round', 'my pick']]);
   for (var r = 1; r <= 20; r++) {
     p.getRange(1 + r, 5).setValue(r);
     p.getRange(1 + r, 6).setFormula(
       '=IF(ISODD($E' + (1 + r) + '),($E' + (1 + r) + ')*$B$1-$B$1+$B$2,($E' + (1 + r) + ')*$B$1-$B$2+1)');
   }
-  p.getRange('A20').setValue('Snake picks assume you mark EVERY pick in the draft (yours and others’) via Draft Tools.');
+  p.getRange('A24').setValue('Snake picks assume you mark EVERY pick in the draft (yours and others’) via Draft Tools.');
 }
 
 // ---------- Master ----------
@@ -190,13 +194,13 @@ function buildMaster_(ss) {
     Q: '=IF($A2="",FALSE,COUNTIF(Log!$B:$B,$A2)>0)',
     R: '=IF($A2="",FALSE,COUNTIFS(Log!$B:$B,$A2,Log!$D:$D,TRUE)>0)',
     S: '=IF($A2="","",IFNA(VLOOKUP($A2,Targets!$A:$C,3,FALSE),""))',
-    T: '=IF($A2="","",ROUND($I2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0),1))',
-    U: '=IF($A2="","",ROUND(MAXIFS($I:$I,$C:$C,$C2,$Q:$Q,FALSE)-$I2,1))',
+    T: '=IF($A2="","",ROUND($I2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0),0))',
+    U: '=IF($A2="","",ROUND(MAXIFS($I:$I,$C:$C,$C2,$Q:$Q,FALSE)-$I2,0))',
     V: '=IF($A2="","",IF($Q2,0,LET(sd,MAX(Params!$B$4,Params!$B$5*$P2),' +
-       'snow,1-NORMDIST(Params!$B$15,$P2,sd,TRUE),snext,1-NORMDIST(Params!$B$16,$P2,sd,TRUE),' +
+       'snow,1-NORMDIST(Params!$B$19,$P2,sd,TRUE),snext,1-NORMDIST(Params!$B$20,$P2,sd,TRUE),' +
        'IF(snow<0.0001,1,ROUND(snext/snow,3)))))',
     W: '=IF($A2="","",IF($Q2,0,LET(sd,MAX(Params!$B$4,Params!$B$5*$P2),' +
-       'snow,1-NORMDIST(Params!$B$15,$P2,sd,TRUE),sthen,1-NORMDIST(Params!$B$17,$P2,sd,TRUE),' +
+       'snow,1-NORMDIST(Params!$B$19,$P2,sd,TRUE),sthen,1-NORMDIST(Params!$B$21,$P2,sd,TRUE),' +
        'IF(snow<0.0001,1,ROUND(sthen/snow,3)))))',
     X: '=IF($A2="","",$M2&"|"&$C2)',
   };
@@ -212,7 +216,7 @@ function buildMaster_(ss) {
 function buildMasterIdp_(ss) {
   var m = getOrCreate_(ss, 'MasterIDP');
   m.clear();
-  m.getRange('A1:F1').setValues([['Player', 'Pos', 'Tm', 'Pts', 'Drafted', 'Tag']]);
+  m.getRange('A1:G1').setValues([['Player', 'Pos', 'Tm', 'Pts', 'Drafted', 'Tag', 'PAR']]);
   var rawIdp = ss.getSheetByName('RawIDP');
   var n = rawIdp ? Math.max(0, rawIdp.getLastRow() - 1) : 0;
   if (n === 0) { m.setFrozenRows(1); return; }
@@ -220,6 +224,7 @@ function buildMasterIdp_(ss) {
   var f = {
     E: '=IF($A2="",FALSE,COUNTIF(Log!$B:$B,$A2)>0)',
     F: '=IF($A2="","",IFNA(VLOOKUP($A2,Targets!$A:$C,3,FALSE),""))',
+    G: '=IF($A2="","",ROUND($D2-IFNA(VLOOKUP($B2,Params!$A$14:$D$16,4,FALSE),0),0))',
   };
   for (var col in f) {
     m.getRange(col + '2').setFormula(f[col]);
@@ -249,12 +254,12 @@ function buildBoard_(ss) {
   if (b.getMaxColumns() < needCols) {
     b.insertColumnsAfter(b.getMaxColumns(), needCols - b.getMaxColumns());
   }
-  var needRows = BOARD_DATA_ROW + 40;
+  var needRows = BOARD_DATA_ROW + Math.max.apply(null, BLOCKS.map(function (x) { return x.rows; })) + 4;
   if (b.getMaxRows() < needRows) {
     b.insertRowsAfter(b.getMaxRows(), needRows - b.getMaxRows());
   }
-  var masterHeaders = ['#', 'id', 'Player', 'Tm', 'Bye', 'Pts', 'XRk', 'ADP', 'PAR', 'P1', 'P2', 'Tgt', 'Diff'];
-  var idpHeaders = ['Player', 'Tm', 'Pts', 'Tgt'];
+  var masterHeaders = ['#', 'id', 'Player', 'Tm', 'Bye', 'XRk', 'ADP', 'PAR', 'P1', 'P2', 'Tgt', 'Diff'];
+  var idpHeaders = ['Player', 'Tm', 'PAR', 'Tgt'];
   var starts = blockStarts_();
   var rules = [];
   var tagColors = [
@@ -275,8 +280,8 @@ function buildBoard_(ss) {
      '=IFERROR(INDEX(Master!$B:$B,MATCH(MINIFS(Master!$P:$P,Master!$Q:$Q,FALSE),Master!$P:$P,0)),"")',
      '=IFERROR(ROUND(MINIFS(Master!$P:$P,Master!$Q:$Q,FALSE),0),"")'],
     ['Max PAR',
-     '=IFERROR(INDEX(Master!$B:$B,MATCH(Params!$B$18,Master!$T:$T,0)),"")',
-     '=Params!$B$18'],
+     '=IFERROR(INDEX(Master!$B:$B,MATCH(Params!$B$22,Master!$T:$T,0)),"")',
+     '=Params!$B$22'],
     ['Biggest 1-gap',
      '=IFERROR(LET(pos,' + bestPos.replace('{0}', '1') +
        ',pos&": "&INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,pos,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
@@ -292,9 +297,9 @@ function buildBoard_(ss) {
     b.getRange(i + 1, 9).setFormula(row[2]);
   });
   var status = [
-    ['Current pick', '=Params!$B$15'],
-    ['My next pick', '=Params!$B$16'],
-    ['Then', '=Params!$B$17'],
+    ['Current pick', '=Params!$B$19'],
+    ['My next pick', '=Params!$B$20'],
+    ['Then', '=Params!$B$21'],
     ['My picks so far', '=COUNTIF(Log!$D:$D,TRUE)'],
   ];
   status.forEach(function (row, i) {
@@ -311,37 +316,40 @@ function buildBoard_(ss) {
 
     if (blk.type === 'master') {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([masterHeaders]).setFontWeight('bold');
-      // QUERY spills cols bs+1..bs+11: fpid,Player,Tm,Bye,Pts,XRk,ADP,PAR,P1,P2,Tgt
+      // QUERY spills cols bs+1..bs+10: fpid,Player,Tm,Bye,XRk,ADP,PAR,P1,P2,Tgt
       b.getRange(BOARD_DATA_ROW, bs + 1).setFormula(
-        '=IFERROR(QUERY(Master!$A$2:$X,"select A,B,D,E,I,N,O,T,V,W,S where C=\'' + blk.pos +
+        '=IFERROR(QUERY(Master!$A$2:$X,"select A,B,D,E,N,O,T,V,W,S where C=\'' + blk.pos +
         '\' and Q=false order by I desc limit ' + blk.rows + '",0),"")');
 
-      var playerL = colLetter_(bs + 2), ptsL = colLetter_(bs + 5);
+      var playerL = colLetter_(bs + 2), ptsL = colLetter_(bs + 7);  // PAR column
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
         '=IF($' + playerL + BOARD_DATA_ROW + '="","",ROW()-' + (BOARD_DATA_ROW - 1) + ')');
       // Diff shown at row 2 (1-gap) and row x+1 (the x-gap), like the old sheet.
-      b.getRange(BOARD_DATA_ROW, bs + 12).setFormula(
+      b.getRange(BOARD_DATA_ROW, bs + 11).setFormula(
         '=IF($' + ptsL + BOARD_DATA_ROW + '="","",IF(OR(ROW()=' + (BOARD_DATA_ROW + 1) +
         ',ROW()=' + BOARD_DATA_ROW + '+Params!$C$' + PARAMS_POS_ROW[blk.pos] + '),' +
         'ROUND($' + ptsL + '$' + BOARD_DATA_ROW + '-$' + ptsL + BOARD_DATA_ROW + ',0),""))');
-      [bs, bs + 12].forEach(function (c) {
+      [bs, bs + 11].forEach(function (c) {
         b.getRange(BOARD_DATA_ROW, c, 1, 1).autoFill(
           b.getRange(BOARD_DATA_ROW, c, blk.rows, 1), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
       });
 
-      // [#, fpid, Player, Tm, Bye, Pts, XRk, ADP, PAR, P1, P2, Tgt, Diff]
-      [26, 0, 132, 32, 30, 40, 38, 38, 38, 40, 40, 22, 38].forEach(function (w, k) {
+      // [#, fpid, Player, Tm, Bye, XRk, ADP, PAR, P1, P2, Tgt, Diff]
+      [26, 0, 132, 28, 26, 38, 38, 38, 38, 38, 22, 36].forEach(function (w, k) {
         if (w) b.setColumnWidth(bs + k, w);
       });
       b.hideColumns(bs + 1);
-      b.getRange(BOARD_DATA_ROW, bs + 9, blk.rows, 2).setNumberFormat('0%');
+      b.getRange(BOARD_DATA_ROW, bs + 3, blk.rows, 2).setFontSize(8);      // Tm, Bye
+      b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1).setNumberFormat('0');  // PAR
+      b.getRange(BOARD_DATA_ROW, bs + 11, blk.rows, 1).setNumberFormat('0'); // Diff
+      b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setNumberFormat('0%');
 
       // Color scales, three-point like the old sheet: rank columns are
       // "lowest is best", so colour saturates at the min and fades to white
       // by CF_RANK_FADE percentile; PAR is "highest is best" and only the top
       // end (above CF_PAR_MID percent of the range) picks up purple.
       var IT = SpreadsheetApp.InterpolationType;
-      [[bs + 6, '#6d9eeb', '#c9daf8'], [bs + 7, '#93c47d', '#d9ead3']].forEach(function (c) {
+      [[bs + 5, '#6d9eeb', '#c9daf8'], [bs + 6, '#93c47d', '#d9ead3']].forEach(function (c) {
         rules.push(SpreadsheetApp.newConditionalFormatRule()
           .setRanges([b.getRange(BOARD_DATA_ROW, c[0], blk.rows, 1)])
           .setGradientMinpointWithValue(c[1], IT.MIN, '')
@@ -350,27 +358,31 @@ function buildBoard_(ss) {
           .build());
       });
       rules.push(SpreadsheetApp.newConditionalFormatRule()
-        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 1)])
+        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1)])
         .setGradientMinpointWithValue('#ffffff', IT.MIN, '')
         .setGradientMidpointWithValue('#d9d2e9', IT.PERCENT, String(CF_PAR_MID))
         .setGradientMaxpointWithValue('#b4a7d6', IT.MAX, '')
         .build());
+      // Survival odds: pale red = likely gone (act now), fading to nothing
+      // when he is safe. No green — a high number needs no attention.
       rules.push(SpreadsheetApp.newConditionalFormatRule()
-        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 9, blk.rows, 2)])
-        .setGradientMinpointWithValue('#e06666', IT.NUMBER, '0')
-        .setGradientMidpointWithValue('#ffe599', IT.NUMBER, '0.5')
-        .setGradientMaxpointWithValue('#93c47d', IT.NUMBER, '1')
+        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2)])
+        .setGradientMinpointWithValue('#f4cccc', IT.NUMBER, '0')
+        .setGradientMidpointWithValue('#fff2cc', IT.NUMBER, '0.5')
+        .setGradientMaxpointWithValue('#ffffff', IT.NUMBER, '1')
         .build());
     } else {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([idpHeaders]).setFontWeight('bold');
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
-        '=IFERROR(QUERY(MasterIDP!$A$2:$F,"select A,C,D,F where B=\'' + blk.pos +
+        '=IFERROR(QUERY(MasterIDP!$A$2:$G,"select A,C,G,F where B=\'' + blk.pos +
         '\' and E=false order by D desc limit ' + blk.rows + '",0),"")');
-      [132, 32, 40, 22].forEach(function (w, k) { b.setColumnWidth(bs + k, w); });
+      [132, 28, 38, 22].forEach(function (w, k) { b.setColumnWidth(bs + k, w); });
+      b.getRange(BOARD_DATA_ROW, bs + 1, blk.rows, 1).setFontSize(8);       // Tm
+      b.getRange(BOARD_DATA_ROW, bs + 2, blk.rows, 1).setNumberFormat('0'); // PAR
     }
 
     var dataRange = b.getRange(BOARD_DATA_ROW, bs, blk.rows, width);
-    var tgtCol = blk.type === 'master' ? bs + 11 : bs + 3;
+    var tgtCol = blk.type === 'master' ? bs + 10 : bs + 3;
     var tgt = colLetter_(tgtCol);
     tagColors.forEach(function (t) {
       rules.push(SpreadsheetApp.newConditionalFormatRule().setRanges([dataRange])
