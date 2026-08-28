@@ -37,6 +37,12 @@ DP_PATH = CACHE / "dp_ids.csv"
 OUT_PATH = CACHE / "fp_projections.csv"
 
 OFFENSE = ("QB", "RB", "WR", "TE")
+# Positions fetched by explicit player id (the position= endpoint alone caps at 10).
+BY_ID = OFFENSE + ("K",)
+# DST ids form a contiguous block: 32 teams, 10-wide steps. We request the range
+# and use whatever comes back — the responses carry the team names, so no
+# id-to-team mapping is assumed anywhere.
+DST_IDS = [str(8000 + 10 * i) for i in range(32)]
 
 
 def dp_id_map() -> dict[str, dict]:
@@ -48,14 +54,19 @@ def dp_id_map() -> dict[str, dict]:
     rows = read_csv_dicts(DP_PATH)
     out = {}
     for r in rows:
-        if r.get("fantasypros_id", "").isdigit() and r.get("position") in OFFENSE:
-            out[f"{norm_name(r['name'])}|{r['position']}"] = r
+        if not r.get("fantasypros_id", "").isdigit():
+            continue
+        pos = r.get("position")
+        if pos in OFFENSE:
+            out[f"{norm_name(r['name'])}|{pos}"] = r
+        elif pos == "PK":  # kickers are 'PK' in the ID map, 'K' everywhere else
+            out.setdefault(f"{norm_name(r['name'])}|K", r)
     return out
 
 
 def candidate_names() -> dict[str, list[str]]:
     """Per-position candidate display names, best first, capped by config.COUNTS."""
-    per_pos: dict[str, list[str]] = {p: [] for p in OFFENSE}
+    per_pos: dict[str, list[str]] = {p: [] for p in BY_ID}
     seen: set[str] = set()
 
     def add(name: str, pos: str):
@@ -69,7 +80,7 @@ def candidate_names() -> dict[str, list[str]]:
     (CACHE / "ffc_adp.json").write_bytes(raw)  # blend.py joins bye + ADP from this
     ffc = json.loads(raw)
     for p in sorted(ffc["players"], key=lambda p: p["adp"]):
-        add(p["name"], p["position"])
+        add(p["name"], "K" if p["position"] == "PK" else p["position"])
 
     wwo_path = find_wwo(ROOT / "data", config.WWO_FILE)
     if wwo_path:
@@ -195,7 +206,7 @@ def main():
     cands = candidate_names()
 
     aliases = load_aliases()
-    fpids_by_pos: dict[str, list[str]] = {p: [] for p in OFFENSE}
+    fpids_by_pos: dict[str, list[str]] = {p: [] for p in BY_ID}
     unmapped: list[str] = []
     id2name: dict[str, str] = {}
     for pos, names in cands.items():
@@ -235,12 +246,14 @@ def main():
 
     # The position param is REQUIRED: without it the API silently defaults to
     # RB and filters every response to RBs only. Batch within each position.
-    CANARIES = {"QB": "17298", "RB": "22968", "WR": "19788", "TE": "22955"}
+    CANARIES = {"QB": "17298", "RB": "22968", "WR": "19788", "TE": "22955",
+                "K": "26068", "DST": "8000"}
     complete = True
     queries: list[tuple[str, str | None]] = []  # (query, canary query or None)
     n_todo = 0
-    for pos in OFFENSE:
-        ids = [i for i in sorted(set(fpids_by_pos[pos]), key=int) if int(i) not in players]
+    for pos in BY_ID + ("DST",):
+        pool = DST_IDS if pos == "DST" else sorted(set(fpids_by_pos[pos]), key=int)
+        ids = [i for i in pool if int(i) not in players]
         n_todo += len(ids)
         canary_q = f"{config.SEASON}/projections?week=0&position={pos}&players={CANARIES[pos]}"
         for i in range(0, len(ids), 10):
@@ -248,12 +261,8 @@ def main():
                 f"{config.SEASON}/projections?week=0&position={pos}&players={':'.join(ids[i:i + 10])}",
                 canary_q,
             ))
-    have_pos = {r["position"] for r in players.values()}
-    for pos in ("K", "DST"):
-        if pos not in have_pos:
-            queries.append((f"{config.SEASON}/projections?week=0&position={pos}", None))
-    print(f"Fetching {n_todo} players{' + K/DST' if len(queries) > n_todo // 10 else ''} "
-          f"-> {len(queries)} API requests")
+    fpids += DST_IDS
+    print(f"Fetching {n_todo} players (incl. K and all 32 DSTs) -> {len(queries)} API requests")
 
     no_proj: list[str] = []
     for n, (q, canary_q) in enumerate(queries):

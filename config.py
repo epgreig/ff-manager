@@ -27,7 +27,7 @@ RESCALE_WWO = True
 # Max players to request from the FantasyPros API per position (offense only;
 # K/DST come from the free top-10 endpoint and IDPs are handled outside this
 # pipeline). Actual counts are limited by the candidate seed (FFC ADP + WWO).
-COUNTS = {"QB": 40, "RB": 70, "WR": 100, "TE": 40}
+COUNTS = {"QB": 40, "RB": 85, "WR": 125, "TE": 50, "K": 25}
 
 # The WinWithOdds download in data/ (pinned by name — data/ also holds the
 # FantasyPros IDP CSVs, so "newest file" discovery is not safe).
