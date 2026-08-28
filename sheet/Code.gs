@@ -30,9 +30,10 @@ var BLOCKS = [
   { pos: 'K',   title: 'K',   type: 'master', rows: 20 },
 ];
 var BLOCK_GAP = 1;
-var TITLE_ROW = 6;        // summary block lives in rows 1-4
-var HEADER_ROW = 7;
-var BOARD_DATA_ROW = 8;
+var TITLE_ROW = 8;        // summary block lives in rows 1-6, banner on 7
+var HEADER_ROW = 9;
+var BOARD_DATA_ROW = 10;
+var EBA_ROW = 25;         // Params: expected-best-available table header
 var PARAMS_POS_ROW = { QB: 8, RB: 9, WR: 10, TE: 11, K: 12, DST: 13, LB: 14, DB: 15, DL: 16 };
 
 // Conditional-format tuning. Rank columns (XRk/ADP): colour is strongest at
@@ -48,8 +49,12 @@ var DATA_URLS = {
   RawIDP: 'https://raw.githubusercontent.com/epgreig/ff-manager/master/out/idp.csv',
 };
 
-// master block: [#, fpid(hidden), Player, Tm, Bye, XRk, ADP, PAR, P1, P2, Tgt, Diff]
-function blockWidth_(b) { return b.type === 'master' ? 12 : 4; }
+// master block: [#, fpid*, Player, Tm, Bye, XRk, ADP, PAR, P1, P2, Tgt*, Diff,
+//                 cum1*, eba1*, cum2*, eba2*]   (* = hidden)
+// The four hidden tails drive the expected-best-available model: cum is the
+// chance every better player is gone, eba the player's contribution to the
+// expected value of waiting.
+function blockWidth_(b) { return b.type === 'master' ? 16 : 4; }
 
 function blockStarts_() {
   var starts = [], c = 1;
@@ -170,6 +175,30 @@ function buildParams_(ss) {
     p.getRange(1 + r, 6).setFormula(
       '=IF(ISODD($E' + (1 + r) + '),($E' + (1 + r) + ')*$B$1-$B$1+$B$2,($E' + (1 + r) + ')*$B$1-$B$2+1)');
   }
+  // Expected best available, read off the Board's hidden EBA columns.
+  // "wait cost" = what the top man is worth now minus what you expect to be
+  // able to take at your next pick — i.e. the price of passing on the position.
+  p.getRange(EBA_ROW, 1, 1, 6).setValues([
+    ['Pos', 'top PAR', 'E[best] next', 'wait cost', 'E[best] after', 'wait cost 2'],
+  ]).setFontWeight('bold');
+  var starts = blockStarts_();
+  var er = EBA_ROW + 1;
+  BLOCKS.forEach(function (blk, i) {
+    if (blk.type !== 'master' || ['K', 'DST'].indexOf(blk.pos) >= 0) return;
+    var bs = starts[i];
+    var first = BOARD_DATA_ROW, last = BOARD_DATA_ROW + blk.rows - 1;
+    var parL = colLetter_(bs + 7), e1L = colLetter_(bs + 13), e2L = colLetter_(bs + 15);
+    p.getRange(er, 1).setValue(blk.pos);
+    p.getRange(er, 2).setFormula('=IFERROR(Board!$' + parL + '$' + first + ',"")');
+    p.getRange(er, 3).setFormula(
+      '=IFERROR(ROUND(SUM(Board!$' + e1L + '$' + first + ':$' + e1L + '$' + last + '),1),"")');
+    p.getRange(er, 4).setFormula('=IFERROR(ROUND($B' + er + '-$C' + er + ',1),"")');
+    p.getRange(er, 5).setFormula(
+      '=IFERROR(ROUND(SUM(Board!$' + e2L + '$' + first + ':$' + e2L + '$' + last + '),1),"")');
+    p.getRange(er, 6).setFormula('=IFERROR(ROUND($B' + er + '-$E' + er + ',1),"")');
+    er++;
+  });
+
   p.getRange('A24').setValue('Snake picks assume you mark EVERY pick in the draft (yours and others’) via Draft Tools.');
 }
 
@@ -267,7 +296,8 @@ function buildBoard_(ss) {
   if (b.getMaxRows() < needRows) {
     b.insertRowsAfter(b.getMaxRows(), needRows - b.getMaxRows());
   }
-  var masterHeaders = ['#', 'id', 'Player', 'Tm', 'Bye', 'XRk', 'ADP', 'PAR', 'P1', 'P2', 'Tgt', 'Diff'];
+  var masterHeaders = ['#', 'id', 'Player', 'Tm', 'Bye', 'XRk', 'ADP', 'PAR', 'P1', 'P2',
+                       'Tgt', 'Diff', 'c1', 'e1', 'c2', 'e2'];
   var idpHeaders = ['Player', 'Tm', 'PAR', 'Tgt'];
   var starts = blockStarts_();
   var rules = [];
@@ -280,7 +310,7 @@ function buildBoard_(ss) {
 
   // Summary block (top-left) + status block beside it. Panel columns are
   // narrow, so every label/value spans a merged range to stay readable.
-  b.getRange(1, 1, 4, 26).breakApart();
+  b.getRange(1, 1, 7, 26).breakApart();
   var bestPos =
     'LET(col,IF({0}=1,Params!$H$8:$H$13,Params!$I$8:$I$13),' +
     'INDEX(Params!$A$8:$A$13,MATCH(MAX(col),col,0)))';
@@ -299,6 +329,18 @@ function buildBoard_(ss) {
      '=IFERROR(LET(pos,' + bestPos.replace('{0}', '2') +
        ',pos&": "&INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,pos,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
      '=IFERROR(MAX(Params!$I$8:$I$13),"")'],
+    ['Costliest wait (next pick)',
+     '=IFERROR(INDEX(Params!$A$' + (EBA_ROW + 1) + ':$A$' + (EBA_ROW + 4) +
+       ',MATCH(MAX(Params!$D$' + (EBA_ROW + 1) + ':$D$' + (EBA_ROW + 4) +
+       '),Params!$D$' + (EBA_ROW + 1) + ':$D$' + (EBA_ROW + 4) + ',0))&" — waiting costs "&' +
+       'ROUND(MAX(Params!$D$' + (EBA_ROW + 1) + ':$D$' + (EBA_ROW + 4) + '),0)&" pts","")',
+     '=IFERROR(ROUND(MAX(Params!$D$' + (EBA_ROW + 1) + ':$D$' + (EBA_ROW + 4) + '),0),"")'],
+    ['Costliest wait (pick after)',
+     '=IFERROR(INDEX(Params!$A$' + (EBA_ROW + 1) + ':$A$' + (EBA_ROW + 4) +
+       ',MATCH(MAX(Params!$F$' + (EBA_ROW + 1) + ':$F$' + (EBA_ROW + 4) +
+       '),Params!$F$' + (EBA_ROW + 1) + ':$F$' + (EBA_ROW + 4) + ',0))&" — waiting costs "&' +
+       'ROUND(MAX(Params!$F$' + (EBA_ROW + 1) + ':$F$' + (EBA_ROW + 4) + '),0)&" pts","")',
+     '=IFERROR(ROUND(MAX(Params!$F$' + (EBA_ROW + 1) + ':$F$' + (EBA_ROW + 4) + '),0),"")'],
   ];
   summary.forEach(function (row, i) {
     b.getRange(i + 1, 1, 1, 3).merge().setValue(row[0]).setFontWeight('bold');
@@ -338,18 +380,34 @@ function buildBoard_(ss) {
         '=IF($' + ptsL + BOARD_DATA_ROW + '="","",IF(OR(ROW()=' + (BOARD_DATA_ROW + 1) +
         ',ROW()=' + BOARD_DATA_ROW + '+Params!$C$' + PARAMS_POS_ROW[blk.pos] + '),' +
         'ROUND($' + ptsL + '$' + BOARD_DATA_ROW + '-$' + ptsL + BOARD_DATA_ROW + ',0),""))');
-      [bs, bs + 11].forEach(function (c) {
+      // Expected best available: walking down a panel already sorted by PAR,
+      // cum = P(every better player is gone), so PAR * P(available) * cum is
+      // this player's share of what you expect to still be there when you pick.
+      var parL = colLetter_(bs + 7), p1L = colLetter_(bs + 8), p2L = colLetter_(bs + 9);
+      var c1L = colLetter_(bs + 12), c2L = colLetter_(bs + 14);
+      var prev = BOARD_DATA_ROW - 1, first = BOARD_DATA_ROW;
+      [[bs + 12, p1L, c1L], [bs + 14, p2L, c2L]].forEach(function (spec) {
+        b.getRange(first, spec[0]).setFormula(
+          '=IF($' + playerL + first + '="","",IF(ROW()=' + first + ',1,$' + spec[2] + prev +
+          '*(1-$' + spec[1] + prev + ')))');
+        b.getRange(first, spec[0] + 1).setFormula(
+          '=IF($' + playerL + first + '="","",$' + parL + first + '*$' + spec[1] + first +
+          '*$' + colLetter_(spec[0]) + first + ')');
+      });
+      [bs, bs + 11, bs + 12, bs + 13, bs + 14, bs + 15].forEach(function (c) {
         b.getRange(BOARD_DATA_ROW, c, 1, 1).autoFill(
           b.getRange(BOARD_DATA_ROW, c, blk.rows, 1), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
       });
 
       // [#, fpid, Player, Tm, Bye, XRk, ADP, PAR, P1, P2, Tgt, Diff]
-      [26, 0, 132, 28, 26, 38, 38, 38, 38, 38, 22, 36].forEach(function (w, k) {
+      [24, 0, 118, 26, 22, 30, 30, 32, 27, 27, 0, 30].forEach(function (w, k) {
         if (w) b.setColumnWidth(bs + k, w);
       });
       b.hideColumns(bs + 1);
-      b.hideColumns(bs + 10);  // Tgt: the row colour conveys it
+      b.hideColumns(bs + 10);   // Tgt: the row colour conveys it
+      b.hideColumns(bs + 12, 4); // EBA working columns
       b.getRange(BOARD_DATA_ROW, bs + 3, blk.rows, 2).setFontSize(8);      // Tm, Bye
+      b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setFontSize(8);      // P1, P2
       b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1).setNumberFormat('0');  // PAR
       b.getRange(BOARD_DATA_ROW, bs + 11, blk.rows, 1).setNumberFormat('0'); // Diff
       b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setNumberFormat('0%');
@@ -393,17 +451,18 @@ function buildBoard_(ss) {
       b.getRange(BOARD_DATA_ROW, bs + 2, blk.rows, 1).setNumberFormat('0'); // PAR
     }
 
-    var dataRange = b.getRange(BOARD_DATA_ROW, bs, blk.rows, width);
+    // Tag colour marks the name cell only, not the whole row.
+    var nameRange = b.getRange(BOARD_DATA_ROW, bs + (blk.type === 'master' ? 2 : 0), blk.rows, 1);
     var tgtCol = blk.type === 'master' ? bs + 10 : bs + 3;
     var tgt = colLetter_(tgtCol);
     tagColors.forEach(function (t) {
-      rules.push(SpreadsheetApp.newConditionalFormatRule().setRanges([dataRange])
+      rules.push(SpreadsheetApp.newConditionalFormatRule().setRanges([nameRange])
         .whenFormulaSatisfied('=$' + tgt + BOARD_DATA_ROW + '="' + t[0] + '"')
         .setBackground(t[1]).build());
     });
   });
 
-  b.getRange(5, 1, 1, 8).merge().setFormula(
+  b.getRange(7, 1, 1, 8).merge().setFormula(
     '=IF(COUNTA(Raw!$A$2:$A)=0,"NO DATA LOADED — run Draft Tools > Refresh data from GitHub, then Rebuild formulas & formatting","")')
     .setFontColor('#cc0000').setFontWeight('bold');
 
