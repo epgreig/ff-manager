@@ -33,7 +33,6 @@ var BLOCK_GAP = 1;
 var TITLE_ROW = 6;        // summary block lives in rows 1-4
 var HEADER_ROW = 7;
 var BOARD_DATA_ROW = 8;
-var MASTER_ROWS = 1200;
 var PARAMS_POS_ROW = { QB: 8, RB: 9, WR: 10, TE: 11, K: 12, DST: 13 };
 
 // Raw data published by the pipeline (see refresh.sh) — pulled by refreshData().
@@ -167,7 +166,13 @@ function buildMaster_(ss) {
     'fpid', 'Player', 'Pos', 'Tm', 'Bye', 'FfcADP', 'FPpts', 'WWOpts', 'Pts', 'src', 'wdiff', 'delta7',
     'norm', 'XRank', 'YADP', 'BehRank', 'Drafted', 'Mine', 'Tag', 'PAR', 'DiffTop', 'P1', 'P2', 'key',
   ]]);
-  m.getRange('A2').setFormula('={Raw!A2:L' + MASTER_ROWS + '}');
+  var raw = ss.getSheetByName('Raw');
+  var n = raw ? Math.max(0, raw.getLastRow() - 1) : 0;
+  if (n === 0) { m.setFrozenRows(1); return; }
+  // FILTER (not an array reference) so unused rows stay genuinely empty:
+  // padded '' cells would make QUERY type these columns as text and the
+  // Board's "where C='QB' and Q=false" would match nothing.
+  m.getRange('A2').setFormula('=FILTER(Raw!A2:L, Raw!A2:A<>"")');
 
   var f = {
     M: '=IF($A2="","",REGEXREPLACE(REGEXREPLACE(LOWER($B2),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$",""))',
@@ -175,8 +180,8 @@ function buildMaster_(ss) {
     O: '=IF($A2="","",IFNA(VLOOKUP($X2,Yahoo!$A:$E,5,FALSE),""))',
     P: '=IF($A2="","",IF($N2<>"",IF($O2<>"",Params!$B$6*$N2+(1-Params!$B$6)*$O2,$N2),' +
        'IF($O2<>"",$O2,IF($F2<>"",$F2,400))))',
-    Q: '=IF($A2="","",COUNTIF(Log!$B:$B,$A2)>0)',
-    R: '=IF($A2="","",COUNTIFS(Log!$B:$B,$A2,Log!$D:$D,TRUE)>0)',
+    Q: '=IF($A2="",FALSE,COUNTIF(Log!$B:$B,$A2)>0)',
+    R: '=IF($A2="",FALSE,COUNTIFS(Log!$B:$B,$A2,Log!$D:$D,TRUE)>0)',
     S: '=IF($A2="","",IFNA(VLOOKUP($A2,Targets!$A:$C,3,FALSE),""))',
     T: '=IF($A2="","",ROUND($I2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0),1))',
     U: '=IF($A2="","",ROUND(MAXIFS($I:$I,$C:$C,$C2,$Q:$Q,FALSE)-$I2,1))',
@@ -190,8 +195,7 @@ function buildMaster_(ss) {
   };
   for (var col in f) {
     m.getRange(col + '2').setFormula(f[col]);
-    m.getRange(col + '2:' + col + '2').autoFill(m.getRange(col + '2:' + col + MASTER_ROWS),
-      SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
+    if (n > 1) m.getRange(col + '2').copyTo(m.getRange(col + '3:' + col + (n + 1)));
   }
   m.setFrozenRows(1);
 }
@@ -202,15 +206,17 @@ function buildMasterIdp_(ss) {
   var m = getOrCreate_(ss, 'MasterIDP');
   m.clear();
   m.getRange('A1:F1').setValues([['Player', 'Pos', 'Tm', 'Pts', 'Drafted', 'Tag']]);
-  m.getRange('A2').setFormula('={RawIDP!A2:D800}');
+  var rawIdp = ss.getSheetByName('RawIDP');
+  var n = rawIdp ? Math.max(0, rawIdp.getLastRow() - 1) : 0;
+  if (n === 0) { m.setFrozenRows(1); return; }
+  m.getRange('A2').setFormula('=FILTER(RawIDP!A2:D, RawIDP!A2:A<>"")');
   var f = {
-    E: '=IF($A2="","",COUNTIF(Log!$B:$B,$A2)>0)',
+    E: '=IF($A2="",FALSE,COUNTIF(Log!$B:$B,$A2)>0)',
     F: '=IF($A2="","",IFNA(VLOOKUP($A2,Targets!$A:$C,3,FALSE),""))',
   };
   for (var col in f) {
     m.getRange(col + '2').setFormula(f[col]);
-    m.getRange(col + '2:' + col + '2').autoFill(m.getRange(col + '2:' + col + '800'),
-      SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
+    if (n > 1) m.getRange(col + '2').copyTo(m.getRange(col + '3:' + col + (n + 1)));
   }
   m.setFrozenRows(1);
 }
@@ -280,6 +286,7 @@ function buildBoard_(ss) {
   BLOCKS.forEach(function (blk, i) {
     var bs = starts[i];
     var width = blockWidth_(blk);
+    b.setColumnWidth(bs + width, 12);  // spacer between panels
     b.getRange(TITLE_ROW, bs).setValue(blk.title).setFontWeight('bold').setFontSize(12);
     var lastDataRow = BOARD_DATA_ROW + blk.rows - 1;
 
@@ -303,8 +310,10 @@ function buildBoard_(ss) {
           b.getRange(BOARD_DATA_ROW, c, blk.rows, 1), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
       });
 
-      b.setColumnWidth(bs, 28);
-      b.setColumnWidth(bs + 2, 140);
+      // [#, fpid, Player, Tm, Bye, Pts, XRk, ADP, PAR, P1, P2, Tgt, Diff]
+      [26, 0, 132, 32, 30, 40, 38, 38, 38, 40, 40, 22, 38].forEach(function (w, k) {
+        if (w) b.setColumnWidth(bs + k, w);
+      });
       b.hideColumns(bs + 1);
       b.getRange(BOARD_DATA_ROW, bs + 9, blk.rows, 2).setNumberFormat('0%');
 
@@ -326,7 +335,7 @@ function buildBoard_(ss) {
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
         '=IFERROR(QUERY(MasterIDP!$A$2:$F,"select A,C,D,F where B=\'' + blk.pos +
         '\' and E=false order by D desc limit ' + blk.rows + '",0),"")');
-      b.setColumnWidth(bs, 140);
+      [132, 32, 40, 22].forEach(function (w, k) { b.setColumnWidth(bs + k, w); });
     }
 
     var dataRange = b.getRange(BOARD_DATA_ROW, bs, blk.rows, width);
@@ -338,6 +347,10 @@ function buildBoard_(ss) {
         .setBackground(t[1]).build());
     });
   });
+
+  b.getRange(5, 1, 1, 8).merge().setFormula(
+    '=IF(COUNTA(Raw!$A$2:$A)=0,"NO DATA LOADED — run Draft Tools > Refresh data from GitHub, then Rebuild formulas & formatting","")')
+    .setFontColor('#cc0000').setFontWeight('bold');
 
   b.setConditionalFormatRules(rules);
   b.setFrozenRows(HEADER_ROW);
@@ -352,7 +365,10 @@ function refreshData() {
     sh.clearContents();
     sh.getRange(1, 1, values.length, values[0].length).setValues(values);
   }
-  ss.toast('Raw + RawIDP refreshed from GitHub.');
+  buildMaster_(ss);
+  buildMasterIdp_(ss);
+  buildBoard_(ss);
+  ss.toast('Raw + RawIDP refreshed from GitHub; formulas resized to the new data.');
 }
 
 // ---------- draft macros ----------
