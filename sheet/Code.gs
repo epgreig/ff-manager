@@ -40,7 +40,7 @@ var PARAMS_POS_ROW = { QB: 8, RB: 9, WR: 10, TE: 11, K: 12, DST: 13, LB: 14, DB:
 // PAR: purple starts appearing above CF_PAR_MID percent of the panel's range.
 var CF_RANK_MID = 8;
 var CF_RANK_FADE = 30;
-var CF_PAR_MID = 85;
+var CF_PAR_MID = 88;  // percentile where PAR starts picking up purple
 
 // Raw data published by the pipeline (see refresh.sh) — pulled by refreshData().
 var DATA_URLS = {
@@ -105,16 +105,21 @@ function ensureDataTabs_(ss) {
   yahoo.getRange('A2:A2').autoFill(yahoo.getRange('A2:A500'), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
   yahoo.getRange('F2:F2').autoFill(yahoo.getRange('F2:F500'), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
 
+  // Type a player NAME in column A and pick a tag in B; C and D are derived.
+  // Matching is by name only, so a name shared across positions (Josh Allen
+  // QB / LB) tags both — rare, and visible as colour on two panels.
   var targets = getOrCreate_(ss, 'Targets');
-  targets.getRange('A1:C1').setValues([['fpid', 'Player (auto)', 'tag']]);
-  if (targets.getLastRow() < 2) {
-    // fpid for offense/K/DEF; IDPs have no fpid, so their id IS the name.
-    targets.getRange('B2').setFormula('=IF($A2="","",IFNA(VLOOKUP($A2,Master!$A:$B,2,FALSE),$A2))');
-    targets.getRange('B2:B2').autoFill(targets.getRange('B2:B100'), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
-  }
+  targets.getRange('A1:D1')
+    .setValues([['Player (type name)', 'tag', 'matched?', 'key (auto)']]).setFontWeight('bold');
+  targets.getRange('C2').setFormula(
+    '=IF($A2="","",IF(COUNTIF(Master!$M:$M,$D2)+COUNTIF(MasterIDP!$H:$H,$D2)>0,"ok","NO MATCH — check spelling"))');
+  targets.getRange('D2').setFormula(
+    '=IF($A2="","",REGEXREPLACE(REGEXREPLACE(LOWER($A2),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$",""))');
+  targets.getRange('C2:D2').copyTo(targets.getRange('C3:D200'));
+  targets.setColumnWidth(1, 170);
   var rule = SpreadsheetApp.newDataValidation()
     .requireValueInList(['high target', 'target', 'mild target', 'downside'], true).build();
-  targets.getRange('C2:C100').setDataValidation(rule);
+  targets.getRange('B2:B200').setDataValidation(rule);
 
   var log = getOrCreate_(ss, 'Log');
   log.getRange('A1:D1').setValues([['pick#', 'fpid', 'Player', 'mine']]);
@@ -193,7 +198,7 @@ function buildMaster_(ss) {
        'IF($O2<>"",$O2,IF($F2<>"",$F2,400))))',
     Q: '=IF($A2="",FALSE,COUNTIF(Log!$B:$B,$A2)>0)',
     R: '=IF($A2="",FALSE,COUNTIFS(Log!$B:$B,$A2,Log!$D:$D,TRUE)>0)',
-    S: '=IF($A2="","",IFNA(VLOOKUP($A2,Targets!$A:$C,3,FALSE),""))',
+    S: '=IF($A2="","",IFNA(INDEX(Targets!$B:$B,MATCH($M2,Targets!$D:$D,0)),""))',
     T: '=IF($A2="","",ROUND($I2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0),0))',
     U: '=IF($A2="","",ROUND(MAXIFS($I:$I,$C:$C,$C2,$Q:$Q,FALSE)-$I2,0))',
     V: '=IF($A2="","",IF($Q2,0,LET(sd,MAX(Params!$B$4,Params!$B$5*$P2),' +
@@ -216,15 +221,16 @@ function buildMaster_(ss) {
 function buildMasterIdp_(ss) {
   var m = getOrCreate_(ss, 'MasterIDP');
   m.clear();
-  m.getRange('A1:G1').setValues([['Player', 'Pos', 'Tm', 'Pts', 'Drafted', 'Tag', 'PAR']]);
+  m.getRange('A1:H1').setValues([['Player', 'Pos', 'Tm', 'Pts', 'Drafted', 'Tag', 'PAR', 'norm']]);
   var rawIdp = ss.getSheetByName('RawIDP');
   var n = rawIdp ? Math.max(0, rawIdp.getLastRow() - 1) : 0;
   if (n === 0) { m.setFrozenRows(1); return; }
   m.getRange('A2').setFormula('=FILTER(RawIDP!A2:D, RawIDP!A2:A<>"")');
   var f = {
     E: '=IF($A2="",FALSE,COUNTIF(Log!$B:$B,$A2)>0)',
-    F: '=IF($A2="","",IFNA(VLOOKUP($A2,Targets!$A:$C,3,FALSE),""))',
+    F: '=IF($A2="","",IFNA(INDEX(Targets!$B:$B,MATCH($H2,Targets!$D:$D,0)),""))',
     G: '=IF($A2="","",ROUND($D2-IFNA(VLOOKUP($B2,Params!$A$14:$D$16,4,FALSE),0),0))',
+    H: '=IF($A2="","",REGEXREPLACE(REGEXREPLACE(LOWER($A2),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$",""))',
   };
   for (var col in f) {
     m.getRange(col + '2').setFormula(f[col]);
@@ -254,6 +260,9 @@ function buildBoard_(ss) {
   if (b.getMaxColumns() < needCols) {
     b.insertColumnsAfter(b.getMaxColumns(), needCols - b.getMaxColumns());
   }
+  // Hidden state survives clear(); an older layout's hidden column would
+  // otherwise stay hidden and swallow a real one (RB lost its names this way).
+  b.showColumns(1, b.getMaxColumns());
   var needRows = BOARD_DATA_ROW + Math.max.apply(null, BLOCKS.map(function (x) { return x.rows; })) + 4;
   if (b.getMaxRows() < needRows) {
     b.insertRowsAfter(b.getMaxRows(), needRows - b.getMaxRows());
@@ -339,6 +348,7 @@ function buildBoard_(ss) {
         if (w) b.setColumnWidth(bs + k, w);
       });
       b.hideColumns(bs + 1);
+      b.hideColumns(bs + 10);  // Tgt: the row colour conveys it
       b.getRange(BOARD_DATA_ROW, bs + 3, blk.rows, 2).setFontSize(8);      // Tm, Bye
       b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1).setNumberFormat('0');  // PAR
       b.getRange(BOARD_DATA_ROW, bs + 11, blk.rows, 1).setNumberFormat('0'); // Diff
@@ -357,10 +367,11 @@ function buildBoard_(ss) {
           .setGradientMaxpointWithValue('#ffffff', IT.PERCENTILE, String(CF_RANK_FADE))
           .build());
       });
+      // Anchor white AT the cutoff, not at the minimum: with white at MIN the
+      // ramp runs across the whole column and tints every cell.
       rules.push(SpreadsheetApp.newConditionalFormatRule()
         .setRanges([b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1)])
-        .setGradientMinpointWithValue('#ffffff', IT.MIN, '')
-        .setGradientMidpointWithValue('#d9d2e9', IT.PERCENT, String(CF_PAR_MID))
+        .setGradientMinpointWithValue('#ffffff', IT.PERCENTILE, String(CF_PAR_MID))
         .setGradientMaxpointWithValue('#b4a7d6', IT.MAX, '')
         .build());
       // Survival odds: pale red = likely gone (act now), fading to nothing
@@ -374,9 +385,10 @@ function buildBoard_(ss) {
     } else {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([idpHeaders]).setFontWeight('bold');
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
-        '=IFERROR(QUERY(MasterIDP!$A$2:$G,"select A,C,G,F where B=\'' + blk.pos +
+        '=IFERROR(QUERY(MasterIDP!$A$2:$H,"select A,C,G,F where B=\'' + blk.pos +
         '\' and E=false order by D desc limit ' + blk.rows + '",0),"")');
       [132, 28, 38, 22].forEach(function (w, k) { b.setColumnWidth(bs + k, w); });
+      b.hideColumns(bs + 3);  // Tgt
       b.getRange(BOARD_DATA_ROW, bs + 1, blk.rows, 1).setFontSize(8);       // Tm
       b.getRange(BOARD_DATA_ROW, bs + 2, blk.rows, 1).setNumberFormat('0'); // PAR
     }
