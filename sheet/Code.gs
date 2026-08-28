@@ -35,6 +35,13 @@ var HEADER_ROW = 7;
 var BOARD_DATA_ROW = 8;
 var PARAMS_POS_ROW = { QB: 8, RB: 9, WR: 10, TE: 11, K: 12, DST: 13 };
 
+// Conditional-format tuning. Rank columns (XRk/ADP): colour is strongest at
+// the best rank, half-faded by CF_RANK_MID percentile, white by CF_RANK_FADE.
+// PAR: purple starts appearing above CF_PAR_MID percent of the panel's range.
+var CF_RANK_MID = 8;
+var CF_RANK_FADE = 30;
+var CF_PAR_MID = 85;
+
 // Raw data published by the pipeline (see refresh.sh) — pulled by refreshData().
 var DATA_URLS = {
   Raw: 'https://raw.githubusercontent.com/epgreig/ff-manager/master/out/blended.csv',
@@ -234,6 +241,18 @@ function buildBoard_(ss) {
   b.clear();
   b.clearConditionalFormatRules();
   b.setFrozenRows(0);
+
+  // Nine panels need ~100 columns; a fresh sheet only has 26, and any
+  // setColumnWidth past the end throws "Those columns are out of bounds".
+  var starts0 = blockStarts_();
+  var needCols = starts0[BLOCKS.length] + 6;
+  if (b.getMaxColumns() < needCols) {
+    b.insertColumnsAfter(b.getMaxColumns(), needCols - b.getMaxColumns());
+  }
+  var needRows = BOARD_DATA_ROW + 40;
+  if (b.getMaxRows() < needRows) {
+    b.insertRowsAfter(b.getMaxRows(), needRows - b.getMaxRows());
+  }
   var masterHeaders = ['#', 'id', 'Player', 'Tm', 'Bye', 'Pts', 'XRk', 'ADP', 'PAR', 'P1', 'P2', 'Tgt', 'Diff'];
   var idpHeaders = ['Player', 'Tm', 'Pts', 'Tgt'];
   var starts = blockStarts_();
@@ -317,19 +336,31 @@ function buildBoard_(ss) {
       b.hideColumns(bs + 1);
       b.getRange(BOARD_DATA_ROW, bs + 9, blk.rows, 2).setNumberFormat('0%');
 
-      // Color scales: rank/ADP green-blue toward the best, PAR purple toward the top.
-      rules.push(SpreadsheetApp.newConditionalFormatRule()
-        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 6, blk.rows, 1)])
-        .setGradientMinpoint('#6d9eeb').setGradientMaxpoint('#ffffff').build());
-      rules.push(SpreadsheetApp.newConditionalFormatRule()
-        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1)])
-        .setGradientMinpoint('#93c47d').setGradientMaxpoint('#ffffff').build());
+      // Color scales, three-point like the old sheet: rank columns are
+      // "lowest is best", so colour saturates at the min and fades to white
+      // by CF_RANK_FADE percentile; PAR is "highest is best" and only the top
+      // end (above CF_PAR_MID percent of the range) picks up purple.
+      var IT = SpreadsheetApp.InterpolationType;
+      [[bs + 6, '#6d9eeb', '#c9daf8'], [bs + 7, '#93c47d', '#d9ead3']].forEach(function (c) {
+        rules.push(SpreadsheetApp.newConditionalFormatRule()
+          .setRanges([b.getRange(BOARD_DATA_ROW, c[0], blk.rows, 1)])
+          .setGradientMinpointWithValue(c[1], IT.MIN, '')
+          .setGradientMidpointWithValue(c[2], IT.PERCENTILE, String(CF_RANK_MID))
+          .setGradientMaxpointWithValue('#ffffff', IT.PERCENTILE, String(CF_RANK_FADE))
+          .build());
+      });
       rules.push(SpreadsheetApp.newConditionalFormatRule()
         .setRanges([b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 1)])
-        .setGradientMinpoint('#ffffff').setGradientMaxpoint('#b4a7d6').build());
+        .setGradientMinpointWithValue('#ffffff', IT.MIN, '')
+        .setGradientMidpointWithValue('#d9d2e9', IT.PERCENT, String(CF_PAR_MID))
+        .setGradientMaxpointWithValue('#b4a7d6', IT.MAX, '')
+        .build());
       rules.push(SpreadsheetApp.newConditionalFormatRule()
         .setRanges([b.getRange(BOARD_DATA_ROW, bs + 9, blk.rows, 2)])
-        .setGradientMinpoint('#e06666').setGradientMaxpoint('#93c47d').build());
+        .setGradientMinpointWithValue('#e06666', IT.NUMBER, '0')
+        .setGradientMidpointWithValue('#ffe599', IT.NUMBER, '0.5')
+        .setGradientMaxpointWithValue('#93c47d', IT.NUMBER, '1')
+        .build());
     } else {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([idpHeaders]).setFontWeight('bold');
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
