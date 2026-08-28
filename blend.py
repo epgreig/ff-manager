@@ -57,6 +57,12 @@ def fp_site_fallback(have_fpids, have_keys, aliases):
             if r.get("fantasypros_id", "").isdigit():
                 dp[f"{norm_name(r['name'])}|{r['position']}"] = r["fantasypros_id"]
 
+    dp_any = {}
+    if dp_path.exists():
+        for r in read_csv_dicts(dp_path):
+            if r.get("fantasypros_id", "").isdigit():
+                dp_any.setdefault(norm_name(r["name"]), r["fantasypros_id"])
+
     rules = config.SCORING_RULES
     added, unmapped = [], []
     for pos, stat_cols in FP_CSV_LAYOUT.items():
@@ -93,6 +99,40 @@ def fp_site_fallback(have_fpids, have_keys, aliases):
             if max_err > 3:
                 print(f"  WARNING: computed points diverge from the file's FPTS by up to "
                       f"{max_err:.1f} — check the download's scoring setting.")
+    # K and DST: their CSVs carry no per-distance FG split and only season-total
+    # points allowed, so league scoring CANNOT be reconstructed from components.
+    # We take FantasyPros' own FPTS and label it, rather than guess.
+    for pos in ("K", "DST"):
+        path = ROOT / "data" / f"FantasyPros_Fantasy_Football_Projections_{pos}.csv"
+        if not path.exists():
+            continue
+        with open(path, newline="") as fh:
+            rows = list(_csv.reader(fh))
+        if "FPTS" not in rows[0]:
+            print(f"  {path.name}: no FPTS column, skipped")
+            continue
+        i_fpts = rows[0].index("FPTS")
+        n_pos = 0
+        for r in rows[1:]:
+            if len(r) <= i_fpts or not r[0].strip():
+                continue
+            name, pts = r[0].strip(), _f(r[i_fpts])
+            if pts <= 0:
+                continue
+            fpid = (aliases.get(norm_name(name)) or dp.get(f"{norm_name(name)}|{pos}")
+                    or dp_any.get(norm_name(name))
+                    or f"{pos.lower()}-{norm_name(name).replace(' ', '-')}")
+            if fpid in have_fpids or player_key(name, pos) in have_keys:
+                continue
+            n_pos += 1
+            added.append({"fpid": fpid, "name": name, "position": pos,
+                          "team": r[1].strip() if len(r) > 1 else "",
+                          "points_std": pts, "points_ppr": pts, "points_half": pts,
+                          "from_csv": True, "fp_default_scoring": True})
+        if n_pos:
+            print(f"FP-site CSV fallback: {n_pos} {pos}s added from {path.name} "
+                  f"-- FANTASYPROS DEFAULT SCORING, not league scoring "
+                  f"({'no FG distance split' if pos == 'K' else 'season PA only, no per-game tiers'})")
     return added, unmapped
 
 
@@ -210,7 +250,9 @@ def main():
         else:
             blend, src = w_wwo * wp + (1 - w_wwo) * r["fp_pts"], "blend"
         if r.get("from_csv"):
-            src += "_csv"  # FP side came from the stale site download, not the API
+            src += "_csv"  # FP side came from the site download, not the API
+        if r.get("fp_default_scoring"):
+            src += "_fpdefault"  # points are FantasyPros' scoring, not the league's
         bye, fadp = ffc_info.get(player_key(r["name"], r["position"]), ("", ""))
         out_rows.append({
             "fpid": r["fpid"], "name": r["name"], "position": r["position"], "team": r["team"],

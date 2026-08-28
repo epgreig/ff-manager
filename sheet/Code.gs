@@ -19,15 +19,15 @@
 // XRk,ADP,PAR,Diff,P1,P2,Tgt) come from Master; 'idp' panels (4 cols: Player,
 // Tm,Pts,Tgt) come from MasterIDP.
 var BLOCKS = [
-  { pos: 'QB',  title: 'QB',  type: 'master', rows: 40 },
+  { pos: 'QB',  title: 'QB',  type: 'master', rows: 30 },
   { pos: 'RB',  title: 'RB',  type: 'master', rows: 70 },
   { pos: 'WR',  title: 'WR',  type: 'master', rows: 90 },
-  { pos: 'TE',  title: 'TE',  type: 'master', rows: 50 },
+  { pos: 'TE',  title: 'TE',  type: 'master', rows: 30 },
   { pos: 'LB',  title: 'LB',  type: 'idp',    rows: 30 },
   { pos: 'DB',  title: 'DB',  type: 'idp',    rows: 30 },
   { pos: 'DL',  title: 'DL',  type: 'idp',    rows: 30 },
-  { pos: 'DST', title: 'DEF', type: 'master', rows: 14 },
-  { pos: 'K',   title: 'K',   type: 'master', rows: 14 },
+  { pos: 'DST', title: 'DEF', type: 'master', rows: 20 },
+  { pos: 'K',   title: 'K',   type: 'master', rows: 20 },
 ];
 var BLOCK_GAP = 1;
 var TITLE_ROW = 6;        // summary block lives in rows 1-4

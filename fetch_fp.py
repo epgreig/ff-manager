@@ -285,13 +285,19 @@ def main():
     if no_proj:
         print(f"{len(no_proj)} candidates have no FP projection (named above) — excluded, not errors.")
 
-    filled = 0
-    for fid, p in fallback.items():
-        if fid not in players:
-            players[fid] = p
-            filled += 1
+    # Fallback only rescues players we actually asked for THIS run, and only
+    # when the quota cut the run short. On a complete run a player the API
+    # didn't return has no projection — say so rather than serving old numbers.
+    requested = set(fpids)
+    filled = []
+    if not complete:
+        for fid, p in fallback.items():
+            if fid not in players and str(fid) in requested:
+                players[fid] = p
+                filled.append(p["name"])
     if filled:
-        print(f"Filled {filled} players from cache fallback (not refreshed this run)")
+        print(f"STALE: {len(filled)} players kept from cache, not refreshed this run: "
+              + ", ".join(sorted(filled)))
 
     if complete:
         # Reconciliation: every requested id either came back or is named here.
