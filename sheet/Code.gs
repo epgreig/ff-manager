@@ -455,14 +455,26 @@ function buildBoard_(ss) {
 
     if (blk.type === 'master') {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([masterHeaders]).setFontWeight('bold');
-      // QUERY spills cols bs+1..bs+11: fpid,Player,Tm,Bye,XRk,ADP,PAR,P1,P2,P3,Tgt
+      // QUERY spills bs+1..bs+11: fpid,Player,Tm,Bye,XRk,ADP,PAR,PS,PL,P2,Tgt.
+      // It must NOT select Master.AA (PAN): that depends on Params, which sums
+      // this panel's own EBA columns, and the whole board goes circular.
       b.getRange(BOARD_DATA_ROW, bs + 1).setFormula(
-        '=IFERROR(QUERY(Master!$A$2:$AA,"select A,B,D,E,N,O,T,V,W,Y,S,AA where C=\'' + blk.pos +
+        '=IFERROR(QUERY(Master!$A$2:$AA,"select A,B,D,E,N,O,T,V,W,Y,S where C=\'' + blk.pos +
         '\' and Q=false order by Z desc limit ' + blk.rows + '",0),"")');
 
       var playerL = colLetter_(bs + 2), ptsL = colLetter_(bs + 7);  // PAR column
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
         '=IF($' + playerL + BOARD_DATA_ROW + '="","",ROW()-' + (BOARD_DATA_ROW - 1) + ')');
+      // PAN — Points Above Next: P(gone) x (his PAR - the fallback you expect
+      // at this position next turn). Computed here, not read from Master.AA.
+      var parC = colLetter_(bs + 7), plC = colLetter_(bs + 9);
+      var ebaRow = { QB: 0, RB: 1, WR: 2, TE: 3 }[blk.pos];
+      if (ebaRow !== undefined) {
+        b.getRange(BOARD_DATA_ROW, bs + 12).setFormula(
+          '=IF(OR($' + parC + BOARD_DATA_ROW + '="",$' + plC + BOARD_DATA_ROW + '=""),"",' +
+          'IFERROR(ROUND((1-$' + plC + BOARD_DATA_ROW + ')*($' + parC + BOARD_DATA_ROW +
+          '-Params!$E$' + (EBA_ROW + 1 + ebaRow) + '),0),""))');
+      }
       // Diff shown at row 2 (1-gap) and row x+1 (the x-gap), like the old sheet.
       b.getRange(BOARD_DATA_ROW, bs + 13).setFormula(
         '=IF($' + ptsL + BOARD_DATA_ROW + '="","",IF(OR(ROW()=' + (BOARD_DATA_ROW + 1) +
