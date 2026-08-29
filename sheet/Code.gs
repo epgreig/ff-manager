@@ -180,7 +180,7 @@ function buildParams_(ss) {
     ['Rounds', 20],
     ['Sigma min (picks)', 4],
     ['Sigma k (× rank)', 0.18],
-    ['XRank weight (vs Yahoo ADP)', 0.7],
+    ['XRank weight (rest goes to ADP)', 0.5],
   ]);
   p.getRange('A7:D7').setValues([['Pos', 'repl rank', 'x before my next', 'baseline pts']])
     .setFontWeight('bold');
