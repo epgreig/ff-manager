@@ -104,15 +104,35 @@ function ensureDataTabs_(ss) {
     idp.getRange('A1').setValue('Import out/idp.csv here the same way');
   }
 
+  // Paste the Yahoo player list straight into YahooRaw (headers on row 2, data
+  // from row 3). Column A there packs three things into one cell —
+  // "Jahmyr Gibbs\nDet - RB" plus an optional injury tag — so the Yahoo tab
+  // unpacks it: name, position, expert Rank (col B) and ADP (col G, else F).
+  var yraw = getOrCreate_(ss, 'YahooRaw');
+  if (yraw.getLastRow() === 0) {
+    yraw.getRange('A1').setValue('Paste the Yahoo player table here (its own header rows included)');
+  }
+  var cell = 'INDEX(YahooRaw!$A:$A,ROW()+1)';
   var yahoo = getOrCreate_(ss, 'Yahoo');
-  yahoo.getRange('A1:F1').setValues([['key (auto)', 'Name', 'Pos', 'XRank', 'ADP', 'reconciled? (auto)']]);
-  // Helper columns only; B:E belong to the user's paste.
+  yahoo.getRange('A1:F1').setValues([
+    ['key (auto)', 'Name (auto)', 'Pos (auto)', 'XRank (auto)', 'ADP (auto)', 'matched? (auto)'],
+  ]).setFontWeight('bold');
+  yahoo.getRange('B2').setFormula('=IFERROR(REGEXEXTRACT(' + cell + ',"^[^\\n]+"),"")');
+  yahoo.getRange('C2').setFormula(
+    '=IFERROR(LET(p,UPPER(REGEXEXTRACT(' + cell + ',"\\n[^\\n]*-\\s*([A-Za-z]+)")),' +
+    'IF(p="DEF","DST",p)),"")');
+  yahoo.getRange('D2').setFormula('=IFERROR(N(INDEX(YahooRaw!$B:$B,ROW()+1)),"")');
+  yahoo.getRange('E2').setFormula(
+    '=IFERROR(LET(all,N(INDEX(YahooRaw!$G:$G,ROW()+1)),pre,N(INDEX(YahooRaw!$F:$F,ROW()+1)),' +
+    'IF(all>0,all,IF(pre>0,pre,""))),"")');
   yahoo.getRange('A2').setFormula(
-    '=IF($B2="","",REGEXREPLACE(REGEXREPLACE(LOWER($B2),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$","")&"|"&UPPER($C2))');
+    '=IF($B2="","",REGEXREPLACE(REGEXREPLACE(LOWER($B2),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$","")&"|"&$C2)');
   yahoo.getRange('F2').setFormula(
-    '=IF($B2="","",IF(COUNTIF(Master!$X$2:$X,$A2)>0,"ok","NO MATCH — fix name or add alias"))');
-  yahoo.getRange('A2:A2').autoFill(yahoo.getRange('A2:A500'), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
-  yahoo.getRange('F2:F2').autoFill(yahoo.getRange('F2:F500'), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
+    '=IF($B2="","",IF(COUNTIF(Master!$X$2:$X,$A2)>0,"ok","NO MATCH — add an alias"))');
+  yahoo.getRange('A2:F2').copyTo(yahoo.getRange('A3:F400'));
+  yahoo.setColumnWidth(1, 160);
+  yahoo.setColumnWidth(2, 150);
+  yahoo.setColumnWidth(6, 170);
 
   // Type a player NAME in column A and pick a tag in B; C and D are derived.
   // Matching is by name only, so a name shared across positions (Josh Allen
