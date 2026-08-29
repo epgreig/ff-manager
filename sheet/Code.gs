@@ -406,7 +406,7 @@ function buildBoard_(ss) {
     var rng = 'Params!$' + col + '$' + lo + ':$' + col + '$' + hi;
     var pos = 'INDEX(Params!$A$' + lo + ':$A$' + hi + ',MATCH(MAX(' + rng + '),' + rng + ',0))';
     return ['Costliest ' + ['S', 'L', '2'][n - 1] + '-wait',
-      '=IFERROR(LET(p,' + pos + ',p&": "&INDEX(Master!$B:$B,' +
+      '=IFERROR(LET(p,' + pos + ',INDEX(Master!$B:$B,' +
         'MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,p,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
       '=IFERROR(ROUND(MAX(' + rng + '),0),"")'];
   };
@@ -419,11 +419,11 @@ function buildBoard_(ss) {
      '=IFERROR(MINIFS(Master!$O:$O,Master!$Q:$Q,FALSE,Master!$O:$O,">0"),"")'],
     ['Biggest 1-gap',
      '=IFERROR(LET(pos,' + bestPos.replace('{0}', '1') +
-       ',pos&": "&INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,pos,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
+       ',INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,pos,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
      '=IFERROR(MAX(Params!$H$8:$H$13),"")'],
     ['Biggest x-gap',
      '=IFERROR(LET(pos,' + bestPos.replace('{0}', '2') +
-       ',pos&": "&INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,pos,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
+       ',INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,pos,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
      '=IFERROR(MAX(Params!$I$8:$I$13),"")'],
     waitRow(1),
     waitRow(2),
