@@ -68,8 +68,7 @@ function blockStarts_() {
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Draft Tools')
-    .addItem('Mark drafted (other team)', 'markDrafted')
-    .addItem('Draft to MY team', 'draftToMe')
+    .addItem('Mark drafted', 'markDrafted')
     .addItem('Undo last pick', 'undoLastPick')
     .addSeparator()
     .addItem('Refresh data from GitHub', 'refreshData')
@@ -132,7 +131,7 @@ function ensureDataTabs_(ss) {
   targets.getRange('B2:B200').setDataValidation(rule);
 
   var log = getOrCreate_(ss, 'Log');
-  log.getRange('A1:D1').setValues([['pick#', 'fpid', 'Player', 'mine']]);
+  log.getRange('A1:C1').setValues([['pick#', 'fpid', 'Player']]);
 }
 
 // ---------- Params ----------
@@ -217,7 +216,7 @@ function buildMaster_(ss) {
   m.clear();
   m.getRange('A1:Y1').setValues([[
     'fpid', 'Player', 'Pos', 'Tm', 'Bye', 'FfcADP', 'FPpts', 'WWOpts', 'Pts', 'src', 'wdiff', 'delta7',
-    'norm', 'XRank', 'YADP', 'BehRank', 'Drafted', 'Mine', 'Tag', 'PAR', 'DiffTop', 'P1', 'P2', 'key',
+    'norm', 'XRank', 'YADP', 'BehRank', 'Drafted', '(unused)', 'Tag', 'PAR', 'DiffTop', 'P1', 'P2', 'key',
     'P3',
   ]]);
   var raw = ss.getSheetByName('Raw');
@@ -235,7 +234,6 @@ function buildMaster_(ss) {
     P: '=IF($A2="","",IF($N2<>"",IF($O2<>"",Params!$B$6*$N2+(1-Params!$B$6)*$O2,$N2),' +
        'IF($O2<>"",$O2,IF($F2<>"",$F2,400))))',
     Q: '=IF($A2="",FALSE,COUNTIF(Log!$B:$B,$A2)>0)',
-    R: '=IF($A2="",FALSE,COUNTIFS(Log!$B:$B,$A2,Log!$D:$D,TRUE)>0)',
     S: '=IF($A2="","",IFNA(INDEX(Targets!$B:$B,MATCH($M2,Targets!$D:$D,0)),""))',
     T: '=IF($A2="","",ROUND($I2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0),0))',
     U: '=IF($A2="","",ROUND(MAXIFS($I:$I,$C:$C,$C2,$Q:$Q,FALSE)-$I2,0))',
@@ -366,7 +364,7 @@ function buildBoard_(ss) {
     ['Current pick', '=Params!$B$19'],
     ['My next pick', '=Params!$B$20'],
     ['Then', '=Params!$B$21'],
-    ['My picks so far', '=COUNTIF(Log!$D:$D,TRUE)'],
+    ['Picks until mine', '=IFERROR(MAX(0,Params!$B$20-Params!$B$19),"")'],
   ];
   var sc = starts0[1];  // second panel: label spans #/id/Player, value Tm..ADP
   status.forEach(function (row, i) {
@@ -542,10 +540,9 @@ function refreshData() {
 
 // ---------- draft macros ----------
 
-function markDrafted() { logPick_(false); }
-function draftToMe() { logPick_(true); }
+function markDrafted() { logPick_(); }
 
-function logPick_(mine) {
+function logPick_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
   var cell = sheet.getActiveCell();
@@ -586,8 +583,8 @@ function logPick_(mine) {
     ss.toast(name + ' is already drafted.');
     return;
   }
-  log.appendRow([log.getLastRow(), fpid, name, mine]);
-  ss.toast('Pick ' + log.getLastRow() + ': ' + name + (mine ? '  ->  MY TEAM' : ''), '', 3);
+  log.appendRow([log.getLastRow(), fpid, name]);
+  ss.toast('Pick ' + log.getLastRow() + ': ' + name, '', 3);
 }
 
 function undoLastPick() {
