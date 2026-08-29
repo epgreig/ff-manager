@@ -40,12 +40,11 @@ var BACKUP_NAME = 'BoardBackup';
 var PARAMS_POS_ROW = { QB: 8, RB: 9, WR: 10, TE: 11, K: 12, DST: 13, LB: 14, DB: 15, DL: 16 };
 
 // Conditional-format tuning. Rank columns (XRk/ADP) shade roughly the top
-// CF_RANK_TOP_N players still on the board and are plain white below that.
-// Percentiles are derived per panel, so a 90-row WR panel and a 30-row QB
-// panel colour the same NUMBER of players rather than the same fraction.
-// PAR: purple starts appearing above CF_PAR_MID percent of the panel's range.
-var CF_RANK_TOP_N = 8;
-var CF_PAR_MID = 88;  // percentile where PAR starts picking up purple
+// CF_RANK_TOP_N players still on the board, board-wide rather than per panel,
+// so the colours are comparable across positions. PAR likewise shades the top
+// CF_PAR_TOP_N players anywhere on the board.
+var CF_RANK_TOP_N = 12;   // players shaded on XRk / ADP, board-wide
+var CF_PAR_TOP_N = 25;    // players shaded on PAR, board-wide
 
 // Raw data published by the pipeline (see refresh.sh) — pulled by refreshData().
 var DATA_URLS = {
@@ -358,6 +357,8 @@ function buildBoard_(ss) {
   var idpHeaders = ['Player', 'Tm', 'PAR', 'Tgt'];
   var starts = blockStarts_();
   var rules = [];
+  var xrkRanges = [], adpRanges = [], parRanges = [], probRanges = [], masterRows = 0;
+  var IT = SpreadsheetApp.InterpolationType;
   var tagColors = [
     ['high target', '#f4cccc'],   // pale red
     ['target', '#fce5cd'],        // pale orange
@@ -477,36 +478,13 @@ function buildBoard_(ss) {
       b.getRange(BOARD_DATA_ROW, bs + 12, blk.rows, 1).setNumberFormat('0'); // Diff
       b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 3).setNumberFormat('0%');
 
-      // Color scales, three-point like the old sheet: rank columns are
-      // "lowest is best", so colour saturates at the min and fades to white
-      // by CF_RANK_FADE percentile; PAR is "highest is best" and only the top
-      // end (above CF_PAR_MID percent of the range) picks up purple.
-      var IT = SpreadsheetApp.InterpolationType;
-      var fadePct = Math.max(2, Math.round(100 * CF_RANK_TOP_N / blk.rows));
-      var midPct = Math.max(1, Math.round(fadePct / 3));
-      [[bs + 5, '#6d9eeb', '#c9daf8'], [bs + 6, '#93c47d', '#d9ead3']].forEach(function (c) {
-        rules.push(SpreadsheetApp.newConditionalFormatRule()
-          .setRanges([b.getRange(BOARD_DATA_ROW, c[0], blk.rows, 1)])
-          .setGradientMinpointWithValue(c[1], IT.MIN, '')
-          .setGradientMidpointWithValue(c[2], IT.PERCENTILE, String(midPct))
-          .setGradientMaxpointWithValue('#ffffff', IT.PERCENTILE, String(fadePct))
-          .build());
-      });
-      // Anchor white AT the cutoff, not at the minimum: with white at MIN the
-      // ramp runs across the whole column and tints every cell.
-      rules.push(SpreadsheetApp.newConditionalFormatRule()
-        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1)])
-        .setGradientMinpointWithValue('#ffffff', IT.PERCENTILE, String(CF_PAR_MID))
-        .setGradientMaxpointWithValue('#b4a7d6', IT.MAX, '')
-        .build());
-      // Survival odds: pale red = likely gone (act now), fading to nothing
-      // when he is safe. No green — a high number needs no attention.
-      rules.push(SpreadsheetApp.newConditionalFormatRule()
-        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 3)])
-        .setGradientMinpointWithValue('#f4cccc', IT.NUMBER, '0')
-        .setGradientMidpointWithValue('#fff2cc', IT.NUMBER, '0.5')
-        .setGradientMaxpointWithValue('#ffffff', IT.NUMBER, '1')
-        .build());
+      // Gather ranges; colour rules are applied once across every panel below,
+      // so a rank or PAR colour means the same thing in each of them.
+      xrkRanges.push(b.getRange(BOARD_DATA_ROW, bs + 5, blk.rows, 1));
+      adpRanges.push(b.getRange(BOARD_DATA_ROW, bs + 6, blk.rows, 1));
+      parRanges.push(b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1));
+      probRanges.push(b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 3));
+      masterRows += blk.rows;
     } else {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([idpHeaders]).setFontWeight('bold');
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
@@ -532,6 +510,34 @@ function buildBoard_(ss) {
   b.getRange(8, 1, 1, 8).merge().setFormula(
     '=IF(COUNTA(Raw!$A$2:$A)=0,"NO DATA LOADED — run Draft Tools > Refresh data from GitHub, then Rebuild formulas & formatting","")')
     .setFontColor('#cc0000').setFontWeight('bold');
+
+  // One rule per metric spanning every position panel: percentiles are taken
+  // over the whole board, so the top-ranked players anywhere get the colour
+  // instead of each panel shading its own local leaders.
+  var rankFade = Math.max(1, Math.round(100 * CF_RANK_TOP_N / masterRows));
+  var rankMid = Math.max(1, Math.round(rankFade / 3));
+  var parStart = Math.min(99, 100 - Math.round(100 * CF_PAR_TOP_N / masterRows));
+  [[xrkRanges, '#6d9eeb', '#c9daf8'], [adpRanges, '#93c47d', '#d9ead3']].forEach(function (c) {
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .setRanges(c[0])
+      .setGradientMinpointWithValue(c[1], IT.MIN, '')
+      .setGradientMidpointWithValue(c[2], IT.PERCENTILE, String(rankMid))
+      .setGradientMaxpointWithValue('#ffffff', IT.PERCENTILE, String(rankFade))
+      .build());
+  });
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .setRanges(parRanges)
+    .setGradientMinpointWithValue('#ffffff', IT.PERCENTILE, String(parStart))
+    .setGradientMaxpointWithValue('#b4a7d6', IT.MAX, '')
+    .build());
+  // Survival odds: pale red = likely gone (act now), fading out when he is
+  // safe. Anchored at 0/0.5/1, so it already reads the same in every panel.
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .setRanges(probRanges)
+    .setGradientMinpointWithValue('#f4cccc', IT.NUMBER, '0')
+    .setGradientMidpointWithValue('#fff2cc', IT.NUMBER, '0.5')
+    .setGradientMaxpointWithValue('#ffffff', IT.NUMBER, '1')
+    .build());
 
   b.setConditionalFormatRules(rules);
   b.setFrozenRows(HEADER_ROW);
