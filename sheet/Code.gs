@@ -125,11 +125,18 @@ function ensureDataTabs_(ss) {
   yahoo.getRange('E2').setFormula(
     '=IFERROR(LET(all,N(INDEX(YahooRaw!$G:$G,ROW()+1)),pre,N(INDEX(YahooRaw!$F:$F,ROW()+1)),' +
     'IF(all>0,all,IF(pre>0,pre,""))),"")');
+  // Column G is the manual escape hatch: type the FantasyPros spelling there
+  // and the key is rebuilt from it. Defences key on nickname alone.
   yahoo.getRange('A2').setFormula(
-    '=IF($B2="","",REGEXREPLACE(REGEXREPLACE(LOWER($B2),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$","")&"|"&$C2)');
+    '=IF($B2="","",LET(nm,IF($G2<>"",$G2,$B2),IF($C2="DST",' +
+    'LOWER(REGEXEXTRACT(TRIM(nm),"(\\S+)$"))&"|DST",' +
+    'REGEXREPLACE(REGEXREPLACE(LOWER(nm),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$","")&"|"&$C2)))');
   yahoo.getRange('F2').setFormula(
-    '=IF($B2="","",IF(COUNTIF(Master!$X$2:$X,$A2)>0,"ok","NO MATCH — add an alias"))');
+    '=IF($B2="","",IF(COUNTIF(Master!$X$2:$X,$A2)>0,"ok",' +
+    '"NO MATCH — put the FantasyPros spelling in column G"))');
+  yahoo.getRange('G1').setValue('fix: FantasyPros name').setFontWeight('bold');
   yahoo.getRange('A2:F2').copyTo(yahoo.getRange('A3:F400'));
+  yahoo.setColumnWidth(7, 170);
   yahoo.setColumnWidth(1, 160);
   yahoo.setColumnWidth(2, 150);
   yahoo.setColumnWidth(6, 170);
@@ -278,7 +285,10 @@ function buildMaster_(ss) {
        'base,1-NORMDIST(Params!$B$19,$P2,sdev,TRUE),' +
        'targ,1-NORMDIST(Params!$B$19+Params!$B$25,$P2,sdev,TRUE),' +
        'IF(base<0.0001,1,ROUND(targ/base,3)))))',
-    X: '=IF($A2="","",$M2&"|"&$C2)',
+    // Defences are keyed on the nickname only: Yahoo writes "Patriots" where
+    // FantasyPros writes "New England Patriots".
+    X: '=IF($A2="","",IF($C2="DST",LOWER(REGEXEXTRACT(TRIM($B2),"(\\S+)$"))&"|DST",' +
+       '$M2&"|"&$C2))',
     Y: '=IF($A2="","",IF($Q2,0,LET(sdev,MAX(Params!$B$4,Params!$B$5*$P2),' +
        'base,1-NORMDIST(Params!$B$19,$P2,sdev,TRUE),' +
        'targ,1-NORMDIST(Params!$B$19+Params!$B$26,$P2,sdev,TRUE),' +
