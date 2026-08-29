@@ -30,9 +30,9 @@ var BLOCKS = [
   { pos: 'K',   title: 'K',   type: 'master', rows: 20 },
 ];
 var BLOCK_GAP = 1;
-var TITLE_ROW = 8;        // summary block lives in rows 1-6, banner on 7
-var HEADER_ROW = 9;
-var BOARD_DATA_ROW = 10;
+var TITLE_ROW = 9;        // summary block lives in rows 1-7, banner on 8
+var HEADER_ROW = 10;
+var BOARD_DATA_ROW = 11;
 var EBA_ROW = 25;         // Params: expected-best-available table header
 // BoardBackup is a frozen snapshot of Board — values only, no formulas — so it
 // survives damage to Master, Log or any formula the live board depends on.
@@ -52,12 +52,12 @@ var DATA_URLS = {
   RawIDP: 'https://raw.githubusercontent.com/epgreig/ff-manager/master/out/idp.csv',
 };
 
-// master block: [#, fpid*, Player, Tm, Bye, XRk, ADP, PAR, P1, P2, Tgt*, Diff,
-//                 cum1*, eba1*, cum2*, eba2*]   (* = hidden)
-// The four hidden tails drive the expected-best-available model: cum is the
-// chance every better player is gone, eba the player's contribution to the
-// expected value of waiting.
-function blockWidth_(b) { return b.type === 'master' ? 16 : 4; }
+// master block: [#, fpid*, Player, Tm, Bye, XRk, ADP, PAR, P1, P2, P3*, Tgt*,
+//                 Diff, cum1*, eba1*, cum2*, eba2*, cum3*, eba3*]  (* = hidden)
+// The hidden tail drives the expected-best-available model at each of the next
+// three picks: cum is P(every better player is gone), eba the player's share of
+// the value you can still expect to get.
+function blockWidth_(b) { return b.type === 'master' ? 19 : 4; }
 
 function blockStarts_() {
   var starts = [], c = 1;
@@ -169,11 +169,13 @@ function buildParams_(ss) {
       '=IFERROR(LET(v,SORT(FILTER(Master!$T$2:$T,Master!$C$2:$C=$A' + r +
       ',Master!$Q$2:$Q=FALSE),1,FALSE),ROUND(INDEX(v,1)-INDEX(v,MIN($C' + r + '+1,ROWS(v))),0)),"")');
   }
-  p.getRange('A19:A22').setValues([['Current pick'], ['My next pick'], ['My pick after'], ['Max PAR remaining']]);
+  p.getRange('A19:A23').setValues([['Current pick'], ['My next pick'], ['My pick after'],
+    ['My third pick'], ['Max PAR remaining']]);
   p.getRange('B19').setFormula('=COUNTA(Log!$B$2:$B)+1');
   p.getRange('B20').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>=$B$19)),999)');
   p.getRange('B21').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>$B$20)),999)');
-  p.getRange('B22').setFormula('=IFERROR(MAX(FILTER(Master!$T$2:$T,Master!$Q$2:$Q=FALSE)),"")');
+  p.getRange('B22').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>$B$21)),999)');
+  p.getRange('B23').setFormula('=IFERROR(MAX(FILTER(Master!$T$2:$T,Master!$Q$2:$Q=FALSE)),"")');
   p.getRange('E1:F1').setValues([['round', 'my pick']]);
   for (var r = 1; r <= 20; r++) {
     p.getRange(1 + r, 5).setValue(r);
@@ -183,8 +185,8 @@ function buildParams_(ss) {
   // Expected best available, read off the Board's hidden EBA columns.
   // "wait cost" = what the top man is worth now minus what you expect to be
   // able to take at your next pick — i.e. the price of passing on the position.
-  p.getRange(EBA_ROW, 1, 1, 6).setValues([
-    ['Pos', 'top PAR', 'E[best] next', 'wait cost', 'E[best] after', 'wait cost 2'],
+  p.getRange(EBA_ROW, 1, 1, 8).setValues([
+    ['Pos', 'top PAR', 'E[best] p1', 'wait 1', 'E[best] p2', 'wait 2', 'E[best] p3', 'wait 3'],
   ]).setFontWeight('bold');
   var starts = blockStarts_();
   var er = EBA_ROW + 1;
@@ -192,15 +194,16 @@ function buildParams_(ss) {
     if (blk.type !== 'master' || ['K', 'DST'].indexOf(blk.pos) >= 0) return;
     var bs = starts[i];
     var first = BOARD_DATA_ROW, last = BOARD_DATA_ROW + blk.rows - 1;
-    var parL = colLetter_(bs + 7), e1L = colLetter_(bs + 13), e2L = colLetter_(bs + 15);
+    var parL = colLetter_(bs + 7);
     p.getRange(er, 1).setValue(blk.pos);
     p.getRange(er, 2).setFormula('=IFERROR(Board!$' + parL + '$' + first + ',"")');
-    p.getRange(er, 3).setFormula(
-      '=IFERROR(ROUND(SUM(Board!$' + e1L + '$' + first + ':$' + e1L + '$' + last + '),1),"")');
-    p.getRange(er, 4).setFormula('=IFERROR(ROUND($B' + er + '-$C' + er + ',1),"")');
-    p.getRange(er, 5).setFormula(
-      '=IFERROR(ROUND(SUM(Board!$' + e2L + '$' + first + ':$' + e2L + '$' + last + '),1),"")');
-    p.getRange(er, 6).setFormula('=IFERROR(ROUND($B' + er + '-$E' + er + ',1),"")');
+    [14, 16, 18].forEach(function (off, k) {
+      var eL = colLetter_(bs + off);
+      p.getRange(er, 3 + 2 * k).setFormula(
+        '=IFERROR(ROUND(SUM(Board!$' + eL + '$' + first + ':$' + eL + '$' + last + '),1),"")');
+      p.getRange(er, 4 + 2 * k).setFormula(
+        '=IFERROR(ROUND($B' + er + '-' + colLetter_(3 + 2 * k) + er + ',1),"")');
+    });
     er++;
   });
 
@@ -212,9 +215,10 @@ function buildParams_(ss) {
 function buildMaster_(ss) {
   var m = getOrCreate_(ss, 'Master');
   m.clear();
-  m.getRange('A1:X1').setValues([[
+  m.getRange('A1:Y1').setValues([[
     'fpid', 'Player', 'Pos', 'Tm', 'Bye', 'FfcADP', 'FPpts', 'WWOpts', 'Pts', 'src', 'wdiff', 'delta7',
     'norm', 'XRank', 'YADP', 'BehRank', 'Drafted', 'Mine', 'Tag', 'PAR', 'DiffTop', 'P1', 'P2', 'key',
+    'P3',
   ]]);
   var raw = ss.getSheetByName('Raw');
   var n = raw ? Math.max(0, raw.getLastRow() - 1) : 0;
@@ -242,6 +246,9 @@ function buildMaster_(ss) {
        'snow,1-NORMDIST(Params!$B$19,$P2,sd,TRUE),sthen,1-NORMDIST(Params!$B$21,$P2,sd,TRUE),' +
        'IF(snow<0.0001,1,ROUND(sthen/snow,3)))))',
     X: '=IF($A2="","",$M2&"|"&$C2)',
+    Y: '=IF($A2="","",IF($Q2,0,LET(sd,MAX(Params!$B$4,Params!$B$5*$P2),' +
+       'snow,1-NORMDIST(Params!$B$19,$P2,sd,TRUE),s3,1-NORMDIST(Params!$B$22,$P2,sd,TRUE),' +
+       'IF(snow<0.0001,1,ROUND(s3/snow,3)))))',
   };
   for (var col in f) {
     m.getRange(col + '2').setFormula(f[col]);
@@ -302,7 +309,7 @@ function buildBoard_(ss) {
     b.insertRowsAfter(b.getMaxRows(), needRows - b.getMaxRows());
   }
   var masterHeaders = ['#', 'id', 'Player', 'Tm', 'Bye', 'XRk', 'ADP', 'PAR', 'P1', 'P2',
-                       'Tgt', 'Diff', 'c1', 'e1', 'c2', 'e2'];
+                       'P3', 'Tgt', 'Diff', 'c1', 'e1', 'c2', 'e2', 'c3', 'e3'];
   var idpHeaders = ['Player', 'Tm', 'PAR', 'Tgt'];
   var starts = blockStarts_();
   var rules = [];
@@ -315,17 +322,29 @@ function buildBoard_(ss) {
 
   // Summary block (top-left) + status block beside it. Panel columns are
   // narrow, so every label/value spans a merged range to stay readable.
-  b.getRange(1, 1, 7, Math.min(60, b.getMaxColumns())).breakApart();
+  b.getRange(1, 1, 8, Math.min(60, b.getMaxColumns())).breakApart();
   var bestPos =
     'LET(col,IF({0}=1,Params!$H$8:$H$13,Params!$I$8:$I$13),' +
     'INDEX(Params!$A$8:$A$13,MATCH(MAX(col),col,0)))';
+  // Costliest wait: which position's top man is worth most over what you
+  // expect to still be able to take at that pick. Column D names the player.
+  var waitRow = function (n) {
+    var col = colLetter_(4 + 2 * (n - 1));  // D / F / H on the Params EBA table
+    var lo = EBA_ROW + 1, hi = EBA_ROW + 4;
+    var rng = 'Params!$' + col + '$' + lo + ':$' + col + '$' + hi;
+    var pos = 'INDEX(Params!$A$' + lo + ':$A$' + hi + ',MATCH(MAX(' + rng + '),' + rng + ',0))';
+    return ['Costliest ' + n + '-wait',
+      '=IFERROR(LET(p,' + pos + ',p&": "&INDEX(Master!$B:$B,' +
+        'MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,p,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
+      '=IFERROR(ROUND(MAX(' + rng + '),0),"")'];
+  };
   var summary = [
-    ['Best avail (rank)',
-     '=IFERROR(INDEX(Master!$B:$B,MATCH(MINIFS(Master!$P:$P,Master!$Q:$Q,FALSE),Master!$P:$P,0)),"")',
-     '=IFERROR(ROUND(MINIFS(Master!$P:$P,Master!$Q:$Q,FALSE),0),"")'],
-    ['Max PAR',
-     '=IFERROR(INDEX(Master!$B:$B,MATCH(Params!$B$22,Master!$T:$T,0)),"")',
-     '=Params!$B$22'],
+    ['Highest X-rank',
+     '=IFERROR(INDEX(Master!$B:$B,MATCH(MINIFS(Master!$N:$N,Master!$Q:$Q,FALSE,Master!$N:$N,">0"),Master!$N:$N,0)),"")',
+     '=IFERROR(MINIFS(Master!$N:$N,Master!$Q:$Q,FALSE,Master!$N:$N,">0"),"")'],
+    ['Highest ADP',
+     '=IFERROR(INDEX(Master!$B:$B,MATCH(MINIFS(Master!$O:$O,Master!$Q:$Q,FALSE,Master!$O:$O,">0"),Master!$O:$O,0)),"")',
+     '=IFERROR(MINIFS(Master!$O:$O,Master!$Q:$Q,FALSE,Master!$O:$O,">0"),"")'],
     ['Biggest 1-gap',
      '=IFERROR(LET(pos,' + bestPos.replace('{0}', '1') +
        ',pos&": "&INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,pos,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
@@ -334,18 +353,9 @@ function buildBoard_(ss) {
      '=IFERROR(LET(pos,' + bestPos.replace('{0}', '2') +
        ',pos&": "&INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,pos,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
      '=IFERROR(MAX(Params!$I$8:$I$13),"")'],
-    ['Costliest wait (next pick)',
-     '=IFERROR(INDEX(Params!$A$' + (EBA_ROW + 1) + ':$A$' + (EBA_ROW + 4) +
-       ',MATCH(MAX(Params!$D$' + (EBA_ROW + 1) + ':$D$' + (EBA_ROW + 4) +
-       '),Params!$D$' + (EBA_ROW + 1) + ':$D$' + (EBA_ROW + 4) + ',0))&" — waiting costs "&' +
-       'ROUND(MAX(Params!$D$' + (EBA_ROW + 1) + ':$D$' + (EBA_ROW + 4) + '),0)&" pts","")',
-     '=IFERROR(ROUND(MAX(Params!$D$' + (EBA_ROW + 1) + ':$D$' + (EBA_ROW + 4) + '),0),"")'],
-    ['Costliest wait (pick after)',
-     '=IFERROR(INDEX(Params!$A$' + (EBA_ROW + 1) + ':$A$' + (EBA_ROW + 4) +
-       ',MATCH(MAX(Params!$F$' + (EBA_ROW + 1) + ':$F$' + (EBA_ROW + 4) +
-       '),Params!$F$' + (EBA_ROW + 1) + ':$F$' + (EBA_ROW + 4) + ',0))&" — waiting costs "&' +
-       'ROUND(MAX(Params!$F$' + (EBA_ROW + 1) + ':$F$' + (EBA_ROW + 4) + '),0)&" pts","")',
-     '=IFERROR(ROUND(MAX(Params!$F$' + (EBA_ROW + 1) + ':$F$' + (EBA_ROW + 4) + '),0),"")'],
+    waitRow(1),
+    waitRow(2),
+    waitRow(3),
   ];
   summary.forEach(function (row, i) {
     b.getRange(i + 1, 1, 1, 3).merge().setValue(row[0]).setFontWeight('bold');
@@ -373,26 +383,28 @@ function buildBoard_(ss) {
 
     if (blk.type === 'master') {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([masterHeaders]).setFontWeight('bold');
-      // QUERY spills cols bs+1..bs+10: fpid,Player,Tm,Bye,XRk,ADP,PAR,P1,P2,Tgt
+      // QUERY spills cols bs+1..bs+11: fpid,Player,Tm,Bye,XRk,ADP,PAR,P1,P2,P3,Tgt
       b.getRange(BOARD_DATA_ROW, bs + 1).setFormula(
-        '=IFERROR(QUERY(Master!$A$2:$X,"select A,B,D,E,N,O,T,V,W,S where C=\'' + blk.pos +
+        '=IFERROR(QUERY(Master!$A$2:$Y,"select A,B,D,E,N,O,T,V,W,Y,S where C=\'' + blk.pos +
         '\' and Q=false order by I desc limit ' + blk.rows + '",0),"")');
 
       var playerL = colLetter_(bs + 2), ptsL = colLetter_(bs + 7);  // PAR column
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
         '=IF($' + playerL + BOARD_DATA_ROW + '="","",ROW()-' + (BOARD_DATA_ROW - 1) + ')');
       // Diff shown at row 2 (1-gap) and row x+1 (the x-gap), like the old sheet.
-      b.getRange(BOARD_DATA_ROW, bs + 11).setFormula(
+      b.getRange(BOARD_DATA_ROW, bs + 12).setFormula(
         '=IF($' + ptsL + BOARD_DATA_ROW + '="","",IF(OR(ROW()=' + (BOARD_DATA_ROW + 1) +
         ',ROW()=' + BOARD_DATA_ROW + '+Params!$C$' + PARAMS_POS_ROW[blk.pos] + '),' +
         'ROUND($' + ptsL + '$' + BOARD_DATA_ROW + '-$' + ptsL + BOARD_DATA_ROW + ',0),""))');
       // Expected best available: walking down a panel already sorted by PAR,
       // cum = P(every better player is gone), so PAR * P(available) * cum is
       // this player's share of what you expect to still be there when you pick.
-      var parL = colLetter_(bs + 7), p1L = colLetter_(bs + 8), p2L = colLetter_(bs + 9);
-      var c1L = colLetter_(bs + 12), c2L = colLetter_(bs + 14);
+      var parL = colLetter_(bs + 7);
+      var probL = [colLetter_(bs + 8), colLetter_(bs + 9), colLetter_(bs + 10)];
+      var cumL = [colLetter_(bs + 13), colLetter_(bs + 15), colLetter_(bs + 17)];
       var prev = BOARD_DATA_ROW - 1, first = BOARD_DATA_ROW;
-      [[bs + 12, p1L, c1L], [bs + 14, p2L, c2L]].forEach(function (spec) {
+      [[bs + 13, probL[0], cumL[0]], [bs + 15, probL[1], cumL[1]],
+       [bs + 17, probL[2], cumL[2]]].forEach(function (spec) {
         b.getRange(first, spec[0]).setFormula(
           '=IF($' + playerL + first + '="","",IF(ROW()=' + first + ',1,$' + spec[2] + prev +
           '*(1-$' + spec[1] + prev + ')))');
@@ -400,22 +412,24 @@ function buildBoard_(ss) {
           '=IF($' + playerL + first + '="","",$' + parL + first + '*$' + spec[1] + first +
           '*$' + colLetter_(spec[0]) + first + ')');
       });
-      [bs, bs + 11, bs + 12, bs + 13, bs + 14, bs + 15].forEach(function (c) {
+      [bs, bs + 12, bs + 13, bs + 14, bs + 15, bs + 16, bs + 17, bs + 18].forEach(function (c) {
         b.getRange(BOARD_DATA_ROW, c, 1, 1).autoFill(
           b.getRange(BOARD_DATA_ROW, c, blk.rows, 1), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
       });
 
       // [#, fpid, Player, Tm, Bye, XRk, ADP, PAR, P1, P2, Tgt, Diff]
-      [24, 0, 118, 26, 22, 30, 30, 32, 27, 27, 0, 30].forEach(function (w, k) {
+      [24, 0, 118, 26, 22, 30, 30, 32, 27, 27, 0, 0, 30].forEach(function (w, k) {
         if (w) b.setColumnWidth(bs + k, w);
       });
       b.hideColumns(bs + 1);
-      b.hideColumns(bs + 10);   // Tgt: the row colour conveys it
-      b.hideColumns(bs + 12, 4); // EBA working columns
+      b.hideColumns(bs + 10, 2);  // P3 and Tgt: used by formulas / row colour
+      b.hideColumns(bs + 13, 6);  // EBA working columns
+      b.getRange(BOARD_DATA_ROW, bs, blk.rows, 1).setNumberFormat('0');       // #
+      b.getRange(BOARD_DATA_ROW, bs + 5, blk.rows, 2).setNumberFormat('0');   // XRk, ADP
       b.getRange(BOARD_DATA_ROW, bs + 3, blk.rows, 2).setFontSize(8);      // Tm, Bye
       b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setFontSize(8);      // P1, P2
       b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1).setNumberFormat('0');  // PAR
-      b.getRange(BOARD_DATA_ROW, bs + 11, blk.rows, 1).setNumberFormat('0'); // Diff
+      b.getRange(BOARD_DATA_ROW, bs + 12, blk.rows, 1).setNumberFormat('0'); // Diff
       b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setNumberFormat('0%');
 
       // Color scales, three-point like the old sheet: rank columns are
@@ -459,7 +473,7 @@ function buildBoard_(ss) {
 
     // Tag colour marks the name cell only, not the whole row.
     var nameRange = b.getRange(BOARD_DATA_ROW, bs + (blk.type === 'master' ? 2 : 0), blk.rows, 1);
-    var tgtCol = blk.type === 'master' ? bs + 10 : bs + 3;
+    var tgtCol = blk.type === 'master' ? bs + 11 : bs + 3;
     var tgt = colLetter_(tgtCol);
     tagColors.forEach(function (t) {
       rules.push(SpreadsheetApp.newConditionalFormatRule().setRanges([nameRange])
@@ -468,7 +482,7 @@ function buildBoard_(ss) {
     });
   });
 
-  b.getRange(7, 1, 1, 8).merge().setFormula(
+  b.getRange(8, 1, 1, 8).merge().setFormula(
     '=IF(COUNTA(Raw!$A$2:$A)=0,"NO DATA LOADED — run Draft Tools > Refresh data from GitHub, then Rebuild formulas & formatting","")')
     .setFontColor('#cc0000').setFontWeight('bold');
 
