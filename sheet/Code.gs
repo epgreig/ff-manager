@@ -56,9 +56,9 @@ var DATA_URLS = {
 //                 Risk, Diff, cS*, eS*, cL*, eL*, c2*, e2*]  (* = hidden)
 // The hidden tail drives the expected-best-available model over each snake gap:
 // cum is P(every better player is gone), eba the player's share of the value
-// you can still expect to get. Risk is PAR x P(gone by my next turn) — the
-// points you expect to lose by passing, which is where PAR and the survival
-// odds become one number worth reading.
+// you can still expect to get. Risk is P(gone) x (PAR - E[best]) — the points
+// you expect to lose by passing, netting off the fallback you would take
+// instead, which is where PAR and the survival odds become one number.
 function blockWidth_(b) { return b.type === 'master' ? 20 : 4; }
 
 function blockStarts_() {
@@ -440,14 +440,19 @@ function buildBoard_(ss) {
       var playerL = colLetter_(bs + 2), ptsL = colLetter_(bs + 7);  // PAR column
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
         '=IF($' + playerL + BOARD_DATA_ROW + '="","",ROW()-' + (BOARD_DATA_ROW - 1) + ')');
-      // Risk = PAR x P(gone before I pick again): the points you expect to
-      // forfeit by passing on him now. It marries the two columns either side
-      // of it, so the shape down a panel shows where value is actually
-      // evaporating rather than where it merely exists.
+      // Risk = P(gone) x (his PAR - what you expect to get at the position
+      // anyway). Losing a player does not cost his whole PAR, only his edge
+      // over the fallback; and that edge is only forfeited in the worlds where
+      // he is actually gone. Negative means waiting looks better than taking
+      // him. E[best] comes from the Params table, which only covers QB/RB/WR/TE.
       var parC = colLetter_(bs + 7), plC = colLetter_(bs + 9);
-      b.getRange(BOARD_DATA_ROW, bs + 12).setFormula(
-        '=IF(OR($' + parC + BOARD_DATA_ROW + '="",$' + plC + BOARD_DATA_ROW + '=""),"",' +
-        'ROUND($' + parC + BOARD_DATA_ROW + '*(1-$' + plC + BOARD_DATA_ROW + '),0))');
+      var ebaRow = { QB: 0, RB: 1, WR: 2, TE: 3 }[blk.pos];
+      if (ebaRow !== undefined) {
+        b.getRange(BOARD_DATA_ROW, bs + 12).setFormula(
+          '=IF(OR($' + parC + BOARD_DATA_ROW + '="",$' + plC + BOARD_DATA_ROW + '=""),"",' +
+          'IFERROR(ROUND((1-$' + plC + BOARD_DATA_ROW + ')*($' + parC + BOARD_DATA_ROW +
+          '-Params!$E$' + (EBA_ROW + 1 + ebaRow) + '),0),""))');
+      }
       // Diff shown at row 2 (1-gap) and row x+1 (the x-gap), like the old sheet.
       b.getRange(BOARD_DATA_ROW, bs + 13).setFormula(
         '=IF($' + ptsL + BOARD_DATA_ROW + '="","",IF(OR(ROW()=' + (BOARD_DATA_ROW + 1) +
@@ -552,10 +557,12 @@ function buildBoard_(ss) {
     .setGradientMidpointWithValue('#fff2cc', IT.NUMBER, '0.5')
     .setGradientMaxpointWithValue('#ffffff', IT.NUMBER, '1')
     .build());
-  // Risk: nothing at stake stays white, the biggest expected losses go red.
+  // Risk: zero (and below, where waiting wins) stays white; red as the
+  // expected cost of passing grows.
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .setRanges(urgRanges)
-    .setGradientMinpointWithValue('#ffffff', IT.NUMBER, '0')
+    .setGradientMinpointWithValue('#ffffff', IT.MIN, '')
+    .setGradientMidpointWithValue('#ffffff', IT.NUMBER, '0')
     .setGradientMaxpointWithValue('#e06666', IT.MAX, '')
     .build());
 
