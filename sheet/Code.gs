@@ -34,9 +34,9 @@ var TITLE_ROW = 8;        // summary block lives in rows 1-6, banner on 7
 var HEADER_ROW = 9;
 var BOARD_DATA_ROW = 10;
 var EBA_ROW = 25;         // Params: expected-best-available table header
-// Two identical, live boards: the second is a standby in case the first gets
-// disturbed mid-draft. Both are formula views over Master, so they always agree.
-var BOARD_NAMES = ['Board', 'BoardBackup'];
+// BoardBackup is a frozen snapshot of Board — values only, no formulas — so it
+// survives damage to Master, Log or any formula the live board depends on.
+var BACKUP_NAME = 'BoardBackup';
 var PARAMS_POS_ROW = { QB: 8, RB: 9, WR: 10, TE: 11, K: 12, DST: 13, LB: 14, DB: 15, DL: 16 };
 
 // Conditional-format tuning. Rank columns (XRk/ADP): colour is strongest at
@@ -73,6 +73,7 @@ function onOpen() {
     .addItem('Undo last pick', 'undoLastPick')
     .addSeparator()
     .addItem('Refresh data from GitHub', 'refreshData')
+    .addItem('Re-snapshot backup board', 'snapshotBackup')
     .addItem('Rebuild formulas & formatting', 'buildSheet')
     .addToUi();
 }
@@ -83,7 +84,8 @@ function buildSheet() {
   buildParams_(ss);
   buildMaster_(ss);
   buildMasterIdp_(ss);
-  BOARD_NAMES.forEach(function (n) { buildBoard_(ss, n); });
+  buildBoard_(ss);
+  snapshotBackup_(ss);
   ss.toast('Sheet built. Import blended.csv into Raw, paste Yahoo ranks, set your slot on Params.');
 }
 
@@ -279,10 +281,8 @@ function colLetter_(n) {
   return s;
 }
 
-function buildBoard_(ss, name) {
-  name = name || 'Board';
-  var isBackup = name !== 'Board';
-  var b = getOrCreate_(ss, name);
+function buildBoard_(ss) {
+  var b = getOrCreate_(ss, 'Board');
   b.clear();
   b.clearConditionalFormatRules();
   b.setFrozenRows(0);
@@ -472,16 +472,42 @@ function buildBoard_(ss, name) {
     '=IF(COUNTA(Raw!$A$2:$A)=0,"NO DATA LOADED — run Draft Tools > Refresh data from GitHub, then Rebuild formulas & formatting","")')
     .setFontColor('#cc0000').setFontWeight('bold');
 
-  if (isBackup) {
-    b.getRange(1, starts0[2], 6, 7).merge()
-      .setValue('BACKUP — DO NOT DRAFT FROM THIS SHEET')
-      .setBackground('#f4cccc').setFontColor('#990000').setFontSize(28)
-      .setFontWeight('bold').setHorizontalAlignment('center')
-      .setVerticalAlignment('middle').setWrap(true);
-  }
-
   b.setConditionalFormatRules(rules);
   b.setFrozenRows(HEADER_ROW);
+}
+
+/**
+ * Freeze the current Board into BoardBackup: same values and look, but every
+ * formula replaced by its result, so the snapshot cannot be broken by later
+ * edits to Master, Log or Params. Rerun any time from the Draft Tools menu.
+ */
+function snapshotBackup_(ss) {
+  var board = ss.getSheetByName('Board');
+  if (!board) return;
+  var old = ss.getSheetByName(BACKUP_NAME);
+  if (old) ss.deleteSheet(old);
+  var stray = ss.getSheetByName('Copy of Board');
+  if (stray) ss.deleteSheet(stray);
+
+  var bak = board.copyTo(ss).setName(BACKUP_NAME);
+  var rng = bak.getDataRange();
+  rng.setValues(rng.getValues());   // formulas -> plain values
+  bak.clearConditionalFormatRules();  // static sheet: colours are already baked
+
+  var sc = blockStarts_()[2];
+  bak.getRange(1, sc, 6, 7).breakApart().clearContent();
+  bak.getRange(1, sc, 6, 7).merge()
+    .setValue('BACKUP — DO NOT DRAFT FROM THIS SHEET')
+    .setBackground('#f4cccc').setFontColor('#990000').setFontSize(28)
+    .setFontWeight('bold').setHorizontalAlignment('center')
+    .setVerticalAlignment('middle').setWrap(true);
+  ss.setActiveSheet(board);
+}
+
+function snapshotBackup() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  snapshotBackup_(ss);
+  ss.toast('BoardBackup re-snapshotted from the current Board.');
 }
 
 function refreshData() {
@@ -495,7 +521,8 @@ function refreshData() {
   }
   buildMaster_(ss);
   buildMasterIdp_(ss);
-  BOARD_NAMES.forEach(function (n) { buildBoard_(ss, n); });
+  buildBoard_(ss);
+  snapshotBackup_(ss);
   ss.toast('Raw + RawIDP refreshed from GitHub; formulas resized to the new data.');
 }
 
