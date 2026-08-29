@@ -555,12 +555,12 @@ function buildBoard_(ss) {
     .setGradientMidpointWithValue('#fff2cc', IT.NUMBER, '0.5')
     .setGradientMaxpointWithValue('#ffffff', IT.NUMBER, '1')
     .build());
-  // PAN: zero (and below, where waiting wins) stays white; red as the
+  // PAN: the bottom third stays white; red as the
   // expected cost of passing grows.
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .setRanges(urgRanges)
     .setGradientMinpointWithValue('#ffffff', IT.MIN, '')
-    .setGradientMidpointWithValue('#ffffff', IT.NUMBER, '0')
+    .setGradientMidpointWithValue('#ffffff', IT.PERCENTILE, '33')
     .setGradientMaxpointWithValue('#e06666', IT.MAX, '')
     .build());
 
