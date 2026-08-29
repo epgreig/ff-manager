@@ -401,6 +401,19 @@ function buildBoard_(ss) {
   // Summary block (top-left) + status block beside it. Panel columns are
   // narrow, so every label/value spans a merged range to stay readable.
   b.getRange(1, 1, 8, Math.min(60, b.getMaxColumns())).breakApart();
+  // Costliest wait: which position's top man is worth most over what you
+  // expect to still be able to take at that pick. Column D/F/H of the Params
+  // EBA table holds the wait cost for the short gap, long gap and both.
+  var waitRow = function (n) {
+    var col = colLetter_(4 + 2 * (n - 1));
+    var lo = EBA_ROW + 1, hi = EBA_ROW + 4;
+    var rng = 'Params!$' + col + '$' + lo + ':$' + col + '$' + hi;
+    var pos = 'INDEX(Params!$A$' + lo + ':$A$' + hi + ',MATCH(MAX(' + rng + '),' + rng + ',0))';
+    return ['Costliest ' + ['S', 'L', '2'][n - 1] + '-wait',
+      '=IFERROR(LET(p,' + pos + ',INDEX(Master!$B:$B,' +
+        'MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,p,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
+      '=IFERROR(ROUND(MAX(' + rng + '),0),"")'];
+  };
   var summary = [
     ['Highest X-rank',
      '=IFERROR(INDEX(Master!$B:$B,MATCH(MINIFS(Master!$N:$N,Master!$Q:$Q,FALSE,Master!$N:$N,">0"),Master!$N:$N,0)),"")',
