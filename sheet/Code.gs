@@ -143,21 +143,27 @@ function ensureDataTabs_(ss) {
   yahoo.setColumnWidth(2, 150);
   yahoo.setColumnWidth(6, 170);
 
-  // Type a player NAME in column A and pick a tag in B; C and D are derived.
-  // Matching is by name only, so a name shared across positions (Josh Allen
-  // QB / LB) tags both — rare, and visible as colour on two panels.
+  // One column per tag: type names under the heading you mean. Columns F:I
+  // hold normalised copies for lookup, K lists anything that failed to match.
   var targets = getOrCreate_(ss, 'Targets');
   targets.getRange('A1:D1')
-    .setValues([['Player (type name)', 'tag', 'matched?', 'key (auto)']]).setFontWeight('bold');
-  targets.getRange('C2').setFormula(
-    '=IF($A2="","",IF(COUNTIF(Master!$M:$M,$D2)+COUNTIF(MasterIDP!$H:$H,$D2)>0,"ok","NO MATCH — check spelling"))');
-  targets.getRange('D2').setFormula(
-    '=IF($A2="","",REGEXREPLACE(REGEXREPLACE(LOWER($A2),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$",""))');
-  targets.getRange('C2:D2').copyTo(targets.getRange('C3:D200'));
-  targets.setColumnWidth(1, 170);
-  var rule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['high target', 'target', 'mild target', 'downside'], true).build();
-  targets.getRange('B2:B200').setDataValidation(rule);
+    .setValues([['high target', 'medium target', 'mild target', 'averse']])
+    .setFontWeight('bold');
+  targets.getRange('F1:I1').setValues([['h (auto)', 'm (auto)', 'l (auto)', 'a (auto)']])
+    .setBackground('#efefef');
+  ['A', 'B', 'C', 'D'].forEach(function (col, k) {
+    targets.getRange(2, 6 + k).setFormula(
+      '=ARRAYFORMULA(IF($' + col + '$2:$' + col + '$200="","",' +
+      'REGEXREPLACE(REGEXREPLACE(LOWER(' + '$' + col + '$2:$' + col + '$200' + '),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$","")))');
+    targets.setColumnWidth(1 + k, 150);
+  });
+  targets.getRange('K1').setValue('unmatched — check spelling').setFontWeight('bold');
+  targets.getRange('K2').setFormula(
+    '=IFERROR(LET(nm,TOCOL($A$2:$D$200,1),bad,FILTER(nm,MAP(nm,LAMBDA(x,' +
+    'COUNTIF(Master!$M:$M,REGEXREPLACE(REGEXREPLACE(LOWER(x),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$",""))+' +
+    'COUNTIF(MasterIDP!$H:$H,REGEXREPLACE(REGEXREPLACE(LOWER(x),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$",""))=0))),' +
+    'TEXTJOIN(", ",TRUE,bad)),"")');
+  targets.setColumnWidth(11, 400);
 
   var log = getOrCreate_(ss, 'Log');
   log.getRange('A1:C1').setValues([['pick#', 'fpid', 'Player']]);
@@ -215,6 +221,12 @@ function buildParams_(ss) {
   p.getRange('B21').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>$B$20)),999)');
   p.getRange('B22').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>$B$21)),999)');
   p.getRange('B23').setFormula('=IFERROR(MAX(FILTER(Master!$T$2:$T,Master!$Q$2:$Q=FALSE)),"")');
+  // Tag nudges: a deliberate thumb on the scale, not a re-projection.
+  p.getRange('D18:E18').setValues([['tag', 'pts adj']]).setFontWeight('bold');
+  p.getRange('D19:E22').setValues([
+    ['high target', 0.04], ['medium target', 0.04], ['mild target', 0.02], ['averse', -0.02],
+  ]);
+  p.getRange('E19:E22').setNumberFormat('0%');
   p.getRange('E1:F1').setValues([['round', 'my pick']]);
   for (var r = 1; r <= 20; r++) {
     p.getRange(1 + r, 5).setValue(r);
@@ -254,10 +266,10 @@ function buildParams_(ss) {
 function buildMaster_(ss) {
   var m = getOrCreate_(ss, 'Master');
   m.clear();
-  m.getRange('A1:Y1').setValues([[
+  m.getRange('A1:Z1').setValues([[
     'fpid', 'Player', 'Pos', 'Tm', 'Bye', 'FfcADP', 'FPpts', 'WWOpts', 'Pts', 'src', 'wdiff', 'delta7',
     'norm', 'XRank', 'YADP', 'BehRank', 'Drafted', '(unused)', 'Tag', 'PAR', 'DiffTop', 'PS', 'PL', 'key',
-    'P2',
+    'P2', 'AdjPts',
   ]]);
   var raw = ss.getSheetByName('Raw');
   var n = raw ? Math.max(0, raw.getLastRow() - 1) : 0;
@@ -274,8 +286,14 @@ function buildMaster_(ss) {
     P: '=IF($A2="","",IF($N2<>"",IF($O2<>"",Params!$B$6*$N2+(1-Params!$B$6)*$O2,$N2),' +
        'IF($O2<>"",$O2,IF($F2<>"",$F2,400))))',
     Q: '=IF($A2="",FALSE,COUNTIF(Log!$B:$B,$A2)>0)',
-    S: '=IF($A2="","",IFNA(INDEX(Targets!$B:$B,MATCH($M2,Targets!$D:$D,0)),""))',
-    T: '=IF($A2="","",ROUND($I2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0),0))',
+    S: '=IF($A2="","",IFS(COUNTIF(Targets!$F:$F,$M2)>0,"high target",' +
+       'COUNTIF(Targets!$G:$G,$M2)>0,"medium target",' +
+       'COUNTIF(Targets!$H:$H,$M2)>0,"mild target",' +
+       'COUNTIF(Targets!$I:$I,$M2)>0,"averse",TRUE,""))',
+    // PAR runs off the tag-adjusted points, but the replacement baseline stays
+    // on the raw projections — a preference should move a player, not the bar.
+    T: '=IF($A2="","",ROUND($Z2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0),0))',
+    Z: '=IF($A2="","",ROUND($I2*(1+IFNA(VLOOKUP($S2,Params!$D$19:$E$22,2,FALSE),0)),1))',
     U: '=IF($A2="","",ROUND(MAXIFS($I:$I,$C:$C,$C2,$Q:$Q,FALSE)-$I2,0))',
     // Survival across the snake gaps, conditional on being here now.
     // LET names must not look like cell refs (s3 -> #NAME), hence sdev/base/targ.
@@ -364,9 +382,9 @@ function buildBoard_(ss) {
   var IT = SpreadsheetApp.InterpolationType;
   var tagColors = [
     ['high target', '#f4cccc'],   // pale red
-    ['target', '#fce5cd'],        // pale orange
+    ['medium target', '#fce5cd'], // pale orange
     ['mild target', '#fff2cc'],   // pale yellow
-    ['downside', '#efefef'],      // pale grey
+    ['averse', '#efefef'],        // pale grey
   ];
 
   // Summary block (top-left) + status block beside it. Panel columns are
@@ -434,8 +452,8 @@ function buildBoard_(ss) {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([masterHeaders]).setFontWeight('bold');
       // QUERY spills cols bs+1..bs+11: fpid,Player,Tm,Bye,XRk,ADP,PAR,P1,P2,P3,Tgt
       b.getRange(BOARD_DATA_ROW, bs + 1).setFormula(
-        '=IFERROR(QUERY(Master!$A$2:$Y,"select A,B,D,E,N,O,T,V,W,Y,S where C=\'' + blk.pos +
-        '\' and Q=false order by I desc limit ' + blk.rows + '",0),"")');
+        '=IFERROR(QUERY(Master!$A$2:$Z,"select A,B,D,E,N,O,T,V,W,Y,S where C=\'' + blk.pos +
+        '\' and Q=false order by Z desc limit ' + blk.rows + '",0),"")');
 
       var playerL = colLetter_(bs + 2), ptsL = colLetter_(bs + 7);  // PAR column
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
