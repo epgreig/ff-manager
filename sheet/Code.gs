@@ -169,11 +169,14 @@ function buildParams_(ss) {
   ]);
   p.getRange('A7:D7').setValues([['Pos', 'repl rank', 'x before my next', 'baseline pts']])
     .setFontWeight('bold');
-  // Replacement ranks for a 12-team league: starters per position plus the
-  // share of the flex that position takes.
+  // Replacement ranks = what is actually free on the waiver wire after the
+  // draft, NOT the number of starters. Ethan's numbers, from the best players
+  // who went undrafted last year, smoothed, adjusted for the third WR slot.
+  // DEF sits at 6 because the league drafts twelve defences but not the same
+  // twelve this board ranks highest, so a top-6 board DEF survives.
   p.getRange('A8:C16').setValues([
-    ['QB', 22, 2], ['RB', 30, 4], ['WR', 44, 6], ['TE', 14, 2], ['K', 12, 0], ['DST', 12, 0],
-    ['LB', 14, 0], ['DB', 14, 0], ['DL', 14, 0],
+    ['QB', 20, 2], ['RB', 56, 4], ['WR', 64, 6], ['TE', 16, 2], ['K', 8, 0], ['DST', 6, 0],
+    ['LB', 8, 0], ['DB', 8, 0], ['DL', 8, 0],
   ]);
   p.getRange('H7:I7').setValues([['1-gap', 'x-gap']]).setFontWeight('bold');
   for (var i = 0; i < 9; i++) {
