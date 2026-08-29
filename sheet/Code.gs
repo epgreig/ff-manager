@@ -53,10 +53,10 @@ var DATA_URLS = {
 };
 
 // master block: [#, fpid*, Player, Tm, Bye, XRk, ADP, PAR, PS, PL, P2*, Tgt*,
-//                 Risk, Diff, cS*, eS*, cL*, eL*, c2*, e2*]  (* = hidden)
+//                 PAN, Diff*, cS*, eS*, cL*, eL*, c2*, e2*] (* = hidden)
 // The hidden tail drives the expected-best-available model over each snake gap:
 // cum is P(every better player is gone), eba the player's share of the value
-// you can still expect to get. Risk is P(gone) x (PAR - E[best]) — the points
+// you can still expect to get. PAN is P(gone) x (PAR - E[best]) — the points
 // you expect to lose by passing, netting off the fallback you would take
 // instead, which is where PAR and the survival odds become one number.
 function blockWidth_(b) { return b.type === 'master' ? 20 : 4; }
@@ -222,7 +222,7 @@ function buildParams_(ss) {
   p.getRange('B22').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>$B$21)),999)');
   p.getRange('B23').setFormula('=IFERROR(MAX(FILTER(Master!$T$2:$T,Master!$Q$2:$Q=FALSE)),"")');
   // Tag nudges, default 0 so tags are colour only. Set a value here to let a
-  // tag move that player's points (and so his PAR, gaps, Risk and sort order).
+  // tag move that player's points (and so his PAR, gaps, PAN and sort order).
   // Keep clear of E2:F21 — that is the snake-pick table.
   p.getRange('G18:H18').setValues([['tag', 'pts adj']]).setFontWeight('bold');
   p.getRange('G19:H22').setValues([
@@ -268,10 +268,10 @@ function buildParams_(ss) {
 function buildMaster_(ss) {
   var m = getOrCreate_(ss, 'Master');
   m.clear();
-  m.getRange('A1:Z1').setValues([[
+  m.getRange('A1:AA1').setValues([[
     'fpid', 'Player', 'Pos', 'Tm', 'Bye', 'FfcADP', 'FPpts', 'WWOpts', 'Pts', 'src', 'wdiff', 'delta7',
     'norm', 'XRank', 'YADP', 'BehRank', 'Drafted', '(unused)', 'Tag', 'PAR', 'DiffTop', 'PS', 'PL', 'key',
-    'P2', 'AdjPts',
+    'P2', 'AdjPts', 'PAN',
   ]]);
   var raw = ss.getSheetByName('Raw');
   var n = raw ? Math.max(0, raw.getLastRow() - 1) : 0;
@@ -296,6 +296,11 @@ function buildMaster_(ss) {
     // on the raw projections — a preference should move a player, not the bar.
     T: '=IF($A2="","",ROUND($Z2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0),0))',
     Z: '=IF($A2="","",ROUND($I2*(1+IFNA(VLOOKUP($S2,Params!$G$19:$H$22,2,FALSE),0)),1))',
+    // PAN — Points Above Next: P(gone) x (his PAR minus what you expect to be
+    // able to take at this position next turn). Blank for drafted players and
+    // for K/DEF, which have no expected-best-available row.
+    AA: '=IF($A2="","",IF($Q2,"",IFERROR(ROUND((1-$W2)*($T2-VLOOKUP($C2,' +
+        'Params!$A$' + (EBA_ROW + 1) + ':$E$' + (EBA_ROW + 4) + ',5,FALSE)),0),"")))',
     U: '=IF($A2="","",ROUND(MAXIFS($I:$I,$C:$C,$C2,$Q:$Q,FALSE)-$I2,0))',
     // Survival across the snake gaps, conditional on being here now.
     // LET names must not look like cell refs (s3 -> #NAME), hence sdev/base/targ.
@@ -379,7 +384,7 @@ function buildBoard_(ss) {
     b.insertRowsAfter(b.getMaxRows(), needRows - b.getMaxRows());
   }
   var masterHeaders = ['#', 'id', 'Player', 'Tm', 'Bye', 'XRk', 'ADP', 'PAR', 'PS', 'PL',
-                       'P2', 'Tgt', 'Risk', 'Diff', 'cS', 'eS', 'cL', 'eL', 'c2', 'e2'];
+                       'P2', 'Tgt', 'PAN', 'Diff', 'cS', 'eS', 'cL', 'eL', 'c2', 'e2'];
   var idpHeaders = ['Player', 'Tm', 'PAR', 'Tgt'];
   var starts = blockStarts_();
   var rules = [];
@@ -396,21 +401,6 @@ function buildBoard_(ss) {
   // Summary block (top-left) + status block beside it. Panel columns are
   // narrow, so every label/value spans a merged range to stay readable.
   b.getRange(1, 1, 8, Math.min(60, b.getMaxColumns())).breakApart();
-  var bestPos =
-    'LET(col,IF({0}=1,Params!$H$8:$H$13,Params!$I$8:$I$13),' +
-    'INDEX(Params!$A$8:$A$13,MATCH(MAX(col),col,0)))';
-  // Costliest wait: which position's top man is worth most over what you
-  // expect to still be able to take at that pick. Column D names the player.
-  var waitRow = function (n) {
-    var col = colLetter_(4 + 2 * (n - 1));  // D / F / H on the Params EBA table
-    var lo = EBA_ROW + 1, hi = EBA_ROW + 4;
-    var rng = 'Params!$' + col + '$' + lo + ':$' + col + '$' + hi;
-    var pos = 'INDEX(Params!$A$' + lo + ':$A$' + hi + ',MATCH(MAX(' + rng + '),' + rng + ',0))';
-    return ['Costliest ' + ['S', 'L', '2'][n - 1] + '-wait',
-      '=IFERROR(LET(p,' + pos + ',INDEX(Master!$B:$B,' +
-        'MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,p,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
-      '=IFERROR(ROUND(MAX(' + rng + '),0),"")'];
-  };
   var summary = [
     ['Highest X-rank',
      '=IFERROR(INDEX(Master!$B:$B,MATCH(MINIFS(Master!$N:$N,Master!$Q:$Q,FALSE,Master!$N:$N,">0"),Master!$N:$N,0)),"")',
@@ -418,14 +408,10 @@ function buildBoard_(ss) {
     ['Highest ADP',
      '=IFERROR(INDEX(Master!$B:$B,MATCH(MINIFS(Master!$O:$O,Master!$Q:$Q,FALSE,Master!$O:$O,">0"),Master!$O:$O,0)),"")',
      '=IFERROR(MINIFS(Master!$O:$O,Master!$Q:$Q,FALSE,Master!$O:$O,">0"),"")'],
-    ['Biggest 1-gap',
-     '=IFERROR(LET(pos,' + bestPos.replace('{0}', '1') +
-       ',INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,pos,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
-     '=IFERROR(MAX(Params!$H$8:$H$13),"")'],
-    ['Biggest x-gap',
-     '=IFERROR(LET(pos,' + bestPos.replace('{0}', '2') +
-       ',INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,pos,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
-     '=IFERROR(MAX(Params!$I$8:$I$13),"")'],
+    ['Biggest PAN',
+     '=IFERROR(INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$AA:$AA,Master!$Q:$Q,FALSE),' +
+       'Master!$AA:$AA,0)),"")',
+     '=IFERROR(ROUND(MAXIFS(Master!$AA:$AA,Master!$Q:$Q,FALSE),0),"")'],
     waitRow(1),
     waitRow(2),
     waitRow(3),
@@ -458,25 +444,12 @@ function buildBoard_(ss) {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([masterHeaders]).setFontWeight('bold');
       // QUERY spills cols bs+1..bs+11: fpid,Player,Tm,Bye,XRk,ADP,PAR,P1,P2,P3,Tgt
       b.getRange(BOARD_DATA_ROW, bs + 1).setFormula(
-        '=IFERROR(QUERY(Master!$A$2:$Z,"select A,B,D,E,N,O,T,V,W,Y,S where C=\'' + blk.pos +
+        '=IFERROR(QUERY(Master!$A$2:$AA,"select A,B,D,E,N,O,T,V,W,Y,S,AA where C=\'' + blk.pos +
         '\' and Q=false order by Z desc limit ' + blk.rows + '",0),"")');
 
       var playerL = colLetter_(bs + 2), ptsL = colLetter_(bs + 7);  // PAR column
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
         '=IF($' + playerL + BOARD_DATA_ROW + '="","",ROW()-' + (BOARD_DATA_ROW - 1) + ')');
-      // Risk = P(gone) x (his PAR - what you expect to get at the position
-      // anyway). Losing a player does not cost his whole PAR, only his edge
-      // over the fallback; and that edge is only forfeited in the worlds where
-      // he is actually gone. Negative means waiting looks better than taking
-      // him. E[best] comes from the Params table, which only covers QB/RB/WR/TE.
-      var parC = colLetter_(bs + 7), plC = colLetter_(bs + 9);
-      var ebaRow = { QB: 0, RB: 1, WR: 2, TE: 3 }[blk.pos];
-      if (ebaRow !== undefined) {
-        b.getRange(BOARD_DATA_ROW, bs + 12).setFormula(
-          '=IF(OR($' + parC + BOARD_DATA_ROW + '="",$' + plC + BOARD_DATA_ROW + '=""),"",' +
-          'IFERROR(ROUND((1-$' + plC + BOARD_DATA_ROW + ')*($' + parC + BOARD_DATA_ROW +
-          '-Params!$E$' + (EBA_ROW + 1 + ebaRow) + '),0),""))');
-      }
       // Diff shown at row 2 (1-gap) and row x+1 (the x-gap), like the old sheet.
       b.getRange(BOARD_DATA_ROW, bs + 13).setFormula(
         '=IF($' + ptsL + BOARD_DATA_ROW + '="","",IF(OR(ROW()=' + (BOARD_DATA_ROW + 1) +
@@ -504,18 +477,19 @@ function buildBoard_(ss) {
           b.getRange(BOARD_DATA_ROW, c, blk.rows, 1), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
       });
 
-      // [#, fpid, Player, Tm, Bye, XRk, ADP, PAR, PS, PL, P2, Tgt, Urg, Diff]
-      [24, 0, 114, 26, 22, 30, 30, 32, 26, 26, 0, 0, 30, 30].forEach(function (w, k) {
+      // [#, fpid, Player, Tm, Bye, XRk, ADP, PAR, PS, PL, P2, Tgt, PAN, Diff]
+      [24, 0, 118, 26, 22, 30, 30, 32, 0, 0, 0, 0, 34, 0].forEach(function (w, k) {
         if (w) b.setColumnWidth(bs + k, w);
       });
       b.hideColumns(bs + 1);
-      b.hideColumns(bs + 10, 2);  // P2 feeds the model; Tgt drives name colour
+      b.hideColumns(bs + 8, 4);   // PS, PL, P2, Tgt: model inputs only now
+      b.hideColumns(bs + 13);     // Diff
       b.hideColumns(bs + 14, 6);  // EBA working columns
       b.getRange(BOARD_DATA_ROW, bs, blk.rows, 1).setNumberFormat('0');       // #
       b.getRange(BOARD_DATA_ROW, bs + 5, blk.rows, 2).setNumberFormat('0');   // XRk, ADP
       b.getRange(BOARD_DATA_ROW, bs + 3, blk.rows, 2).setFontSize(8);      // Tm, Bye
       b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setFontSize(8);      // PS, PL
-      b.getRange(BOARD_DATA_ROW, bs + 12, blk.rows, 1).setNumberFormat('0');  // Risk
+      b.getRange(BOARD_DATA_ROW, bs + 12, blk.rows, 1).setNumberFormat('0');  // PAN
       b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1).setNumberFormat('0');  // PAR
       b.getRange(BOARD_DATA_ROW, bs + 13, blk.rows, 1).setNumberFormat('0'); // Diff
       b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setNumberFormat('0%');
@@ -581,7 +555,7 @@ function buildBoard_(ss) {
     .setGradientMidpointWithValue('#fff2cc', IT.NUMBER, '0.5')
     .setGradientMaxpointWithValue('#ffffff', IT.NUMBER, '1')
     .build());
-  // Risk: zero (and below, where waiting wins) stays white; red as the
+  // PAN: zero (and below, where waiting wins) stays white; red as the
   // expected cost of passing grows.
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .setRanges(urgRanges)
