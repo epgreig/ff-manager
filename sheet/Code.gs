@@ -39,11 +39,12 @@ var EBA_ROW = 30;         // Params: expected-best-available table header
 var BACKUP_NAME = 'BoardBackup';
 var PARAMS_POS_ROW = { QB: 8, RB: 9, WR: 10, TE: 11, K: 12, DST: 13, LB: 14, DB: 15, DL: 16 };
 
-// Conditional-format tuning. Rank columns (XRk/ADP): colour is strongest at
-// the best rank, half-faded by CF_RANK_MID percentile, white by CF_RANK_FADE.
+// Conditional-format tuning. Rank columns (XRk/ADP) shade roughly the top
+// CF_RANK_TOP_N players still on the board and are plain white below that.
+// Percentiles are derived per panel, so a 90-row WR panel and a 30-row QB
+// panel colour the same NUMBER of players rather than the same fraction.
 // PAR: purple starts appearing above CF_PAR_MID percent of the panel's range.
-var CF_RANK_MID = 8;
-var CF_RANK_FADE = 30;
+var CF_RANK_TOP_N = 8;
 var CF_PAR_MID = 88;  // percentile where PAR starts picking up purple
 
 // Raw data published by the pipeline (see refresh.sh) — pulled by refreshData().
@@ -481,12 +482,14 @@ function buildBoard_(ss) {
       // by CF_RANK_FADE percentile; PAR is "highest is best" and only the top
       // end (above CF_PAR_MID percent of the range) picks up purple.
       var IT = SpreadsheetApp.InterpolationType;
+      var fadePct = Math.max(2, Math.round(100 * CF_RANK_TOP_N / blk.rows));
+      var midPct = Math.max(1, Math.round(fadePct / 3));
       [[bs + 5, '#6d9eeb', '#c9daf8'], [bs + 6, '#93c47d', '#d9ead3']].forEach(function (c) {
         rules.push(SpreadsheetApp.newConditionalFormatRule()
           .setRanges([b.getRange(BOARD_DATA_ROW, c[0], blk.rows, 1)])
           .setGradientMinpointWithValue(c[1], IT.MIN, '')
-          .setGradientMidpointWithValue(c[2], IT.PERCENTILE, String(CF_RANK_MID))
-          .setGradientMaxpointWithValue('#ffffff', IT.PERCENTILE, String(CF_RANK_FADE))
+          .setGradientMidpointWithValue(c[2], IT.PERCENTILE, String(midPct))
+          .setGradientMaxpointWithValue('#ffffff', IT.PERCENTILE, String(fadePct))
           .build());
       });
       // Anchor white AT the cutoff, not at the minimum: with white at MIN the
