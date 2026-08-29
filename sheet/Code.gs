@@ -20,7 +20,7 @@
 // Tm,Pts,Tgt) come from MasterIDP.
 var BLOCKS = [
   { pos: 'QB',  title: 'QB',  type: 'master', rows: 30 },
-  { pos: 'RB',  title: 'RB',  type: 'master', rows: 70 },
+  { pos: 'RB',  title: 'RB',  type: 'master', rows: 90 },
   { pos: 'WR',  title: 'WR',  type: 'master', rows: 90 },
   { pos: 'TE',  title: 'TE',  type: 'master', rows: 30 },
   { pos: 'LB',  title: 'LB',  type: 'idp',    rows: 30 },
