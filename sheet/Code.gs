@@ -53,12 +53,12 @@ var DATA_URLS = {
 };
 
 // master block: [#, fpid*, Player, Tm, Bye, XRk, ADP, PAR, PS, PL, P2*, Tgt*,
-//                 Urg, Diff, cS*, eS*, cL*, eL*, c2*, e2*]   (* = hidden)
+//                 Risk, Diff, cS*, eS*, cL*, eL*, c2*, e2*]  (* = hidden)
 // The hidden tail drives the expected-best-available model over each snake gap:
 // cum is P(every better player is gone), eba the player's share of the value
-// you can still expect to get. Urg is the share of a player's PAR that waiting
-// a full turn puts at risk — PAR is that same quantity at an infinite horizon,
-// so Urg says how much of it bites right now.
+// you can still expect to get. Risk is PAR x P(gone by my next turn) — the
+// points you expect to lose by passing, which is where PAR and the survival
+// odds become one number worth reading.
 function blockWidth_(b) { return b.type === 'master' ? 20 : 4; }
 
 function blockStarts_() {
@@ -236,7 +236,7 @@ function buildParams_(ss) {
     var parL = colLetter_(bs + 7);
     p.getRange(er, 1).setValue(blk.pos);
     p.getRange(er, 2).setFormula('=IFERROR(Board!$' + parL + '$' + first + ',"")');
-    [14, 16, 18].forEach(function (off, k) {
+    [15, 17, 19].forEach(function (off, k) {   // eS / eL / e2 contribution columns
       var eL = colLetter_(bs + off);
       p.getRange(er, 3 + 2 * k).setFormula(
         '=IFERROR(ROUND(SUM(Board!$' + eL + '$' + first + ':$' + eL + '$' + last + '),1),"")');
@@ -355,7 +355,7 @@ function buildBoard_(ss) {
     b.insertRowsAfter(b.getMaxRows(), needRows - b.getMaxRows());
   }
   var masterHeaders = ['#', 'id', 'Player', 'Tm', 'Bye', 'XRk', 'ADP', 'PAR', 'PS', 'PL',
-                       'P2', 'Tgt', 'Urg', 'Diff', 'cS', 'eS', 'cL', 'eL', 'c2', 'e2'];
+                       'P2', 'Tgt', 'Risk', 'Diff', 'cS', 'eS', 'cL', 'eL', 'c2', 'e2'];
   var idpHeaders = ['Player', 'Tm', 'PAR', 'Tgt'];
   var starts = blockStarts_();
   var rules = [];
@@ -440,16 +440,14 @@ function buildBoard_(ss) {
       var playerL = colLetter_(bs + 2), ptsL = colLetter_(bs + 7);  // PAR column
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
         '=IF($' + playerL + BOARD_DATA_ROW + '="","",ROW()-' + (BOARD_DATA_ROW - 1) + ')');
-      // Urgency: the fraction of this player's PAR that waiting a full turn
-      // puts at risk. Blank where PAR <= 0 (the ratio stops meaning anything)
-      // and for K/DEF, which have no expected-best-available row.
-      var parC = colLetter_(bs + 7), ebaRow = { QB: 0, RB: 1, WR: 2, TE: 3 }[blk.pos];
-      if (ebaRow !== undefined) {
-        b.getRange(BOARD_DATA_ROW, bs + 12).setFormula(
-          '=IF(OR($' + parC + BOARD_DATA_ROW + '="",$' + parC + BOARD_DATA_ROW + '<=0),"",' +
-          'IFERROR(ROUND(($' + parC + BOARD_DATA_ROW + '-Params!$E$' + (EBA_ROW + 1 + ebaRow) +
-          ')/$' + parC + BOARD_DATA_ROW + ',2),""))');
-      }
+      // Risk = PAR x P(gone before I pick again): the points you expect to
+      // forfeit by passing on him now. It marries the two columns either side
+      // of it, so the shape down a panel shows where value is actually
+      // evaporating rather than where it merely exists.
+      var parC = colLetter_(bs + 7), plC = colLetter_(bs + 9);
+      b.getRange(BOARD_DATA_ROW, bs + 12).setFormula(
+        '=IF(OR($' + parC + BOARD_DATA_ROW + '="",$' + plC + BOARD_DATA_ROW + '=""),"",' +
+        'ROUND($' + parC + BOARD_DATA_ROW + '*(1-$' + plC + BOARD_DATA_ROW + '),0))');
       // Diff shown at row 2 (1-gap) and row x+1 (the x-gap), like the old sheet.
       b.getRange(BOARD_DATA_ROW, bs + 13).setFormula(
         '=IF($' + ptsL + BOARD_DATA_ROW + '="","",IF(OR(ROW()=' + (BOARD_DATA_ROW + 1) +
@@ -488,7 +486,7 @@ function buildBoard_(ss) {
       b.getRange(BOARD_DATA_ROW, bs + 5, blk.rows, 2).setNumberFormat('0');   // XRk, ADP
       b.getRange(BOARD_DATA_ROW, bs + 3, blk.rows, 2).setFontSize(8);      // Tm, Bye
       b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setFontSize(8);      // PS, PL
-      b.getRange(BOARD_DATA_ROW, bs + 12, blk.rows, 1).setNumberFormat('0%'); // Urg
+      b.getRange(BOARD_DATA_ROW, bs + 12, blk.rows, 1).setNumberFormat('0');  // Risk
       b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1).setNumberFormat('0');  // PAR
       b.getRange(BOARD_DATA_ROW, bs + 13, blk.rows, 1).setNumberFormat('0'); // Diff
       b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setNumberFormat('0%');
@@ -554,12 +552,11 @@ function buildBoard_(ss) {
     .setGradientMidpointWithValue('#fff2cc', IT.NUMBER, '0.5')
     .setGradientMaxpointWithValue('#ffffff', IT.NUMBER, '1')
     .build());
-  // Urgency runs the other way: the more of his value is at stake, the redder.
+  // Risk: nothing at stake stays white, the biggest expected losses go red.
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .setRanges(urgRanges)
     .setGradientMinpointWithValue('#ffffff', IT.NUMBER, '0')
-    .setGradientMidpointWithValue('#fff2cc', IT.NUMBER, '0.5')
-    .setGradientMaxpointWithValue('#f4cccc', IT.NUMBER, '1')
+    .setGradientMaxpointWithValue('#e06666', IT.MAX, '')
     .build());
 
   b.setConditionalFormatRules(rules);
