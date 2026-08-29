@@ -221,11 +221,12 @@ function buildParams_(ss) {
   p.getRange('B21').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>$B$20)),999)');
   p.getRange('B22').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>$B$21)),999)');
   p.getRange('B23').setFormula('=IFERROR(MAX(FILTER(Master!$T$2:$T,Master!$Q$2:$Q=FALSE)),"")');
-  // Tag nudges: a deliberate thumb on the scale, not a re-projection.
+  // Tag nudges, default 0 so tags are colour only. Set a value here to let a
+  // tag move that player's points (and so his PAR, gaps, Risk and sort order).
   // Keep clear of E2:F21 — that is the snake-pick table.
   p.getRange('G18:H18').setValues([['tag', 'pts adj']]).setFontWeight('bold');
   p.getRange('G19:H22').setValues([
-    ['high target', 0.04], ['medium target', 0.04], ['mild target', 0.02], ['averse', -0.02],
+    ['high target', 0], ['medium target', 0], ['mild target', 0], ['averse', 0],
   ]);
   p.getRange('H19:H22').setNumberFormat('0%');
   p.getRange('E1:F1').setValues([['round', 'my pick']]);
