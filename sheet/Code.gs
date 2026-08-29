@@ -140,7 +140,7 @@ function buildParams_(ss) {
   var p = getOrCreate_(ss, 'Params');
   p.clear();
   p.getRange('A1:B6').setValues([
-    ['Teams', 10],
+    ['Teams', 12],
     ['My draft slot', 5],
     ['Rounds', 20],
     ['Sigma min (picks)', 4],
@@ -149,9 +149,11 @@ function buildParams_(ss) {
   ]);
   p.getRange('A7:D7').setValues([['Pos', 'repl rank', 'x before my next', 'baseline pts']])
     .setFontWeight('bold');
+  // Replacement ranks for a 12-team league: starters per position plus the
+  // share of the flex that position takes.
   p.getRange('A8:C16').setValues([
-    ['QB', 22, 2], ['RB', 26, 4], ['WR', 40, 5], ['TE', 12, 2], ['K', 10, 0], ['DST', 10, 0],
-    ['LB', 12, 0], ['DB', 12, 0], ['DL', 12, 0],
+    ['QB', 22, 2], ['RB', 30, 4], ['WR', 44, 6], ['TE', 14, 2], ['K', 12, 0], ['DST', 12, 0],
+    ['LB', 14, 0], ['DB', 14, 0], ['DL', 14, 0],
   ]);
   p.getRange('H7:I7').setValues([['1-gap', 'x-gap']]).setFontWeight('bold');
   for (var i = 0; i < 9; i++) {

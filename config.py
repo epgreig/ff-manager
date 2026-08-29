@@ -50,5 +50,5 @@ WWO_COLS = {"name": None, "position": None, "points": None}
 
 # FantasyFootballCalculator ADP used for candidate seeding.
 FFC_FORMAT = "half-ppr"
-LEAGUE_TEAMS = 10
+LEAGUE_TEAMS = 12
 SEASON = 2026
