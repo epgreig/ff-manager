@@ -456,10 +456,11 @@ function buildBoard_(ss) {
     if (blk.type === 'master') {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([masterHeaders]).setFontWeight('bold');
       // QUERY spills bs+1..bs+11: fpid,Player,Tm,Bye,XRk,ADP,PAR,PS,PL,P2,Tgt.
-      // It must NOT select Master.AA (PAN): that depends on Params, which sums
-      // this panel's own EBA columns, and the whole board goes circular.
+      // The range must stop at Z. Master.AA (PAN) depends on Params, which sums
+      // this panel's own EBA columns, so merely INCLUDING AA in the range —
+      // selected or not — makes the whole board circular and it renders blank.
       b.getRange(BOARD_DATA_ROW, bs + 1).setFormula(
-        '=IFERROR(QUERY(Master!$A$2:$AA,"select A,B,D,E,N,O,T,V,W,Y,S where C=\'' + blk.pos +
+        '=IFERROR(QUERY(Master!$A$2:$Z,"select A,B,D,E,N,O,T,V,W,Y,S where C=\'' + blk.pos +
         '\' and Q=false order by Z desc limit ' + blk.rows + '",0),"")');
 
       var playerL = colLetter_(bs + 2), ptsL = colLetter_(bs + 7);  // PAR column
