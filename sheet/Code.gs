@@ -34,6 +34,9 @@ var TITLE_ROW = 8;        // summary block lives in rows 1-6, banner on 7
 var HEADER_ROW = 9;
 var BOARD_DATA_ROW = 10;
 var EBA_ROW = 25;         // Params: expected-best-available table header
+// Two identical, live boards: the second is a standby in case the first gets
+// disturbed mid-draft. Both are formula views over Master, so they always agree.
+var BOARD_NAMES = ['Board', 'BoardBackup'];
 var PARAMS_POS_ROW = { QB: 8, RB: 9, WR: 10, TE: 11, K: 12, DST: 13, LB: 14, DB: 15, DL: 16 };
 
 // Conditional-format tuning. Rank columns (XRk/ADP): colour is strongest at
@@ -80,7 +83,7 @@ function buildSheet() {
   buildParams_(ss);
   buildMaster_(ss);
   buildMasterIdp_(ss);
-  buildBoard_(ss);
+  BOARD_NAMES.forEach(function (n) { buildBoard_(ss, n); });
   ss.toast('Sheet built. Import blended.csv into Raw, paste Yahoo ranks, set your slot on Params.');
 }
 
@@ -276,8 +279,10 @@ function colLetter_(n) {
   return s;
 }
 
-function buildBoard_(ss) {
-  var b = getOrCreate_(ss, 'Board');
+function buildBoard_(ss, name) {
+  name = name || 'Board';
+  var isBackup = name !== 'Board';
+  var b = getOrCreate_(ss, name);
   b.clear();
   b.clearConditionalFormatRules();
   b.setFrozenRows(0);
@@ -310,7 +315,7 @@ function buildBoard_(ss) {
 
   // Summary block (top-left) + status block beside it. Panel columns are
   // narrow, so every label/value spans a merged range to stay readable.
-  b.getRange(1, 1, 7, 26).breakApart();
+  b.getRange(1, 1, 7, Math.min(60, b.getMaxColumns())).breakApart();
   var bestPos =
     'LET(col,IF({0}=1,Params!$H$8:$H$13,Params!$I$8:$I$13),' +
     'INDEX(Params!$A$8:$A$13,MATCH(MAX(col),col,0)))';
@@ -353,9 +358,10 @@ function buildBoard_(ss) {
     ['Then', '=Params!$B$21'],
     ['My picks so far', '=COUNTIF(Log!$D:$D,TRUE)'],
   ];
+  var sc = starts0[1];  // second panel: label spans #/id/Player, value Tm..ADP
   status.forEach(function (row, i) {
-    b.getRange(i + 1, 15, 1, 3).merge().setValue(row[0]).setFontWeight('bold');
-    b.getRange(i + 1, 18, 1, 2).merge().setFormula(row[1]);
+    b.getRange(i + 1, sc, 1, 3).merge().setValue(row[0]).setFontWeight('bold');
+    b.getRange(i + 1, sc + 3, 1, 4).merge().setFormula(row[1]);
   });
 
   BLOCKS.forEach(function (blk, i) {
@@ -466,6 +472,14 @@ function buildBoard_(ss) {
     '=IF(COUNTA(Raw!$A$2:$A)=0,"NO DATA LOADED — run Draft Tools > Refresh data from GitHub, then Rebuild formulas & formatting","")')
     .setFontColor('#cc0000').setFontWeight('bold');
 
+  if (isBackup) {
+    b.getRange(1, starts0[2], 6, 7).merge()
+      .setValue('BACKUP — DO NOT DRAFT FROM THIS SHEET')
+      .setBackground('#f4cccc').setFontColor('#990000').setFontSize(28)
+      .setFontWeight('bold').setHorizontalAlignment('center')
+      .setVerticalAlignment('middle').setWrap(true);
+  }
+
   b.setConditionalFormatRules(rules);
   b.setFrozenRows(HEADER_ROW);
 }
@@ -481,7 +495,7 @@ function refreshData() {
   }
   buildMaster_(ss);
   buildMasterIdp_(ss);
-  buildBoard_(ss);
+  BOARD_NAMES.forEach(function (n) { buildBoard_(ss, n); });
   ss.toast('Raw + RawIDP refreshed from GitHub; formulas resized to the new data.');
 }
 
@@ -496,6 +510,10 @@ function logPick_(mine) {
   var cell = sheet.getActiveCell();
   var fpid, name;
 
+  if (sheet.getName() === 'BoardBackup') {
+    ss.toast('That is the backup board — draft from the Board tab.');
+    return;
+  }
   if (sheet.getName() === 'Board') {
     if (cell.getRow() < BOARD_DATA_ROW) { ss.toast('Select a player row first.'); return; }
     var starts = blockStarts_();
