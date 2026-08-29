@@ -15,7 +15,7 @@ SCORING_RULES = {
 
 # Weight on WinWithOdds (prop-derived) points where both sources cover a player.
 # FantasyPros gets 1 - this.
-BLEND_WEIGHT_WWO = 0.65
+BLEND_WEIGHT_WWO = 0.50
 
 # If True, rescale WWO points by the per-position mean ratio vs FP before
 # blending (corrects level disagreement between sources, keeps player ordering).
