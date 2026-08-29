@@ -33,7 +33,7 @@ var BLOCK_GAP = 1;
 var TITLE_ROW = 9;        // summary block lives in rows 1-7, banner on 8
 var HEADER_ROW = 10;
 var BOARD_DATA_ROW = 11;
-var EBA_ROW = 25;         // Params: expected-best-available table header
+var EBA_ROW = 30;         // Params: expected-best-available table header
 // BoardBackup is a frozen snapshot of Board — values only, no formulas — so it
 // survives damage to Master, Log or any formula the live board depends on.
 var BACKUP_NAME = 'BoardBackup';
@@ -168,8 +168,14 @@ function buildParams_(ss) {
       '=IFERROR(LET(v,SORT(FILTER(Master!$T$2:$T,Master!$C$2:$C=$A' + r +
       ',Master!$Q$2:$Q=FALSE),1,FALSE),ROUND(INDEX(v,1)-INDEX(v,MIN($C' + r + '+1,ROWS(v))),0)),"")');
   }
-  p.getRange('A19:A23').setValues([['Current pick'], ['My next pick'], ['My pick after'],
-    ['My third pick'], ['Max PAR remaining']]);
+  p.getRange('A19:A26').setValues([['Current pick'], ['My next pick'], ['My pick after'],
+    ['My third pick'], ['Max PAR remaining'],
+    ['Short gap (picks)'], ['Long gap (picks)'], ['Both gaps']]);
+  // In a snake, the distance between your picks alternates between two values
+  // that always sum to 2 x teams: 2*slot-1 turning back on you, and the rest.
+  p.getRange('B24').setFormula('=MIN(2*$B$2-1,2*$B$1-2*$B$2+1)');
+  p.getRange('B25').setFormula('=MAX(2*$B$2-1,2*$B$1-2*$B$2+1)');
+  p.getRange('B26').setFormula('=2*$B$1');
   p.getRange('B19').setFormula('=COUNTA(Log!$B$2:$B)+1');
   p.getRange('B20').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>=$B$19)),999)');
   p.getRange('B21').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>$B$20)),999)');
@@ -185,7 +191,7 @@ function buildParams_(ss) {
   // "wait cost" = what the top man is worth now minus what you expect to be
   // able to take at your next pick — i.e. the price of passing on the position.
   p.getRange(EBA_ROW, 1, 1, 8).setValues([
-    ['Pos', 'top PAR', 'E[best] p1', 'wait 1', 'E[best] p2', 'wait 2', 'E[best] p3', 'wait 3'],
+    ['Pos', 'top PAR', 'E[best] short', 'wait S', 'E[best] long', 'wait L', 'E[best] 2gaps', 'wait 2'],
   ]).setFontWeight('bold');
   var starts = blockStarts_();
   var er = EBA_ROW + 1;
@@ -206,7 +212,7 @@ function buildParams_(ss) {
     er++;
   });
 
-  p.getRange('A24').setValue('Snake picks assume you mark EVERY pick in the draft (yours and others’) via Draft Tools.');
+  p.getRange('A28').setValue('Snake picks assume you mark EVERY pick in the draft (yours and others’) via Draft Tools.');
 }
 
 // ---------- Master ----------
@@ -216,8 +222,8 @@ function buildMaster_(ss) {
   m.clear();
   m.getRange('A1:Y1').setValues([[
     'fpid', 'Player', 'Pos', 'Tm', 'Bye', 'FfcADP', 'FPpts', 'WWOpts', 'Pts', 'src', 'wdiff', 'delta7',
-    'norm', 'XRank', 'YADP', 'BehRank', 'Drafted', '(unused)', 'Tag', 'PAR', 'DiffTop', 'P1', 'P2', 'key',
-    'P3',
+    'norm', 'XRank', 'YADP', 'BehRank', 'Drafted', '(unused)', 'Tag', 'PAR', 'DiffTop', 'PS', 'PL', 'key',
+    'P2',
   ]]);
   var raw = ss.getSheetByName('Raw');
   var n = raw ? Math.max(0, raw.getLastRow() - 1) : 0;
@@ -237,16 +243,21 @@ function buildMaster_(ss) {
     S: '=IF($A2="","",IFNA(INDEX(Targets!$B:$B,MATCH($M2,Targets!$D:$D,0)),""))',
     T: '=IF($A2="","",ROUND($I2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0),0))',
     U: '=IF($A2="","",ROUND(MAXIFS($I:$I,$C:$C,$C2,$Q:$Q,FALSE)-$I2,0))',
-    V: '=IF($A2="","",IF($Q2,0,LET(sd,MAX(Params!$B$4,Params!$B$5*$P2),' +
-       'snow,1-NORMDIST(Params!$B$19,$P2,sd,TRUE),snext,1-NORMDIST(Params!$B$20,$P2,sd,TRUE),' +
-       'IF(snow<0.0001,1,ROUND(snext/snow,3)))))',
-    W: '=IF($A2="","",IF($Q2,0,LET(sd,MAX(Params!$B$4,Params!$B$5*$P2),' +
-       'snow,1-NORMDIST(Params!$B$19,$P2,sd,TRUE),sthen,1-NORMDIST(Params!$B$21,$P2,sd,TRUE),' +
-       'IF(snow<0.0001,1,ROUND(sthen/snow,3)))))',
+    // Survival across the snake gaps, conditional on being here now.
+    // LET names must not look like cell refs (s3 -> #NAME), hence sdev/base/targ.
+    V: '=IF($A2="","",IF($Q2,0,LET(sdev,MAX(Params!$B$4,Params!$B$5*$P2),' +
+       'base,1-NORMDIST(Params!$B$19,$P2,sdev,TRUE),' +
+       'targ,1-NORMDIST(Params!$B$19+Params!$B$24,$P2,sdev,TRUE),' +
+       'IF(base<0.0001,1,ROUND(targ/base,3)))))',
+    W: '=IF($A2="","",IF($Q2,0,LET(sdev,MAX(Params!$B$4,Params!$B$5*$P2),' +
+       'base,1-NORMDIST(Params!$B$19,$P2,sdev,TRUE),' +
+       'targ,1-NORMDIST(Params!$B$19+Params!$B$25,$P2,sdev,TRUE),' +
+       'IF(base<0.0001,1,ROUND(targ/base,3)))))',
     X: '=IF($A2="","",$M2&"|"&$C2)',
-    Y: '=IF($A2="","",IF($Q2,0,LET(sd,MAX(Params!$B$4,Params!$B$5*$P2),' +
-       'snow,1-NORMDIST(Params!$B$19,$P2,sd,TRUE),s3,1-NORMDIST(Params!$B$22,$P2,sd,TRUE),' +
-       'IF(snow<0.0001,1,ROUND(s3/snow,3)))))',
+    Y: '=IF($A2="","",IF($Q2,0,LET(sdev,MAX(Params!$B$4,Params!$B$5*$P2),' +
+       'base,1-NORMDIST(Params!$B$19,$P2,sdev,TRUE),' +
+       'targ,1-NORMDIST(Params!$B$19+Params!$B$26,$P2,sdev,TRUE),' +
+       'IF(base<0.0001,1,ROUND(targ/base,3)))))',
   };
   for (var col in f) {
     m.getRange(col + '2').setFormula(f[col]);
@@ -306,8 +317,8 @@ function buildBoard_(ss) {
   if (b.getMaxRows() < needRows) {
     b.insertRowsAfter(b.getMaxRows(), needRows - b.getMaxRows());
   }
-  var masterHeaders = ['#', 'id', 'Player', 'Tm', 'Bye', 'XRk', 'ADP', 'PAR', 'P1', 'P2',
-                       'P3', 'Tgt', 'Diff', 'c1', 'e1', 'c2', 'e2', 'c3', 'e3'];
+  var masterHeaders = ['#', 'id', 'Player', 'Tm', 'Bye', 'XRk', 'ADP', 'PAR', 'PS', 'PL',
+                       'P2', 'Tgt', 'Diff', 'cS', 'eS', 'cL', 'eL', 'c2', 'e2'];
   var idpHeaders = ['Player', 'Tm', 'PAR', 'Tgt'];
   var starts = blockStarts_();
   var rules = [];
@@ -331,7 +342,7 @@ function buildBoard_(ss) {
     var lo = EBA_ROW + 1, hi = EBA_ROW + 4;
     var rng = 'Params!$' + col + '$' + lo + ':$' + col + '$' + hi;
     var pos = 'INDEX(Params!$A$' + lo + ':$A$' + hi + ',MATCH(MAX(' + rng + '),' + rng + ',0))';
-    return ['Costliest ' + n + '-wait',
+    return ['Costliest ' + ['S', 'L', '2'][n - 1] + '-wait',
       '=IFERROR(LET(p,' + pos + ',p&": "&INDEX(Master!$B:$B,' +
         'MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,p,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
       '=IFERROR(ROUND(MAX(' + rng + '),0),"")'];
@@ -416,19 +427,19 @@ function buildBoard_(ss) {
       });
 
       // [#, fpid, Player, Tm, Bye, XRk, ADP, PAR, P1, P2, Tgt, Diff]
-      [24, 0, 118, 26, 22, 30, 30, 32, 27, 27, 0, 0, 30].forEach(function (w, k) {
+      [24, 0, 114, 26, 22, 30, 30, 32, 26, 26, 26, 0, 30].forEach(function (w, k) {
         if (w) b.setColumnWidth(bs + k, w);
       });
       b.hideColumns(bs + 1);
-      b.hideColumns(bs + 10, 2);  // P3 and Tgt: used by formulas / row colour
+      b.hideColumns(bs + 11);     // Tgt: the name colour conveys it
       b.hideColumns(bs + 13, 6);  // EBA working columns
       b.getRange(BOARD_DATA_ROW, bs, blk.rows, 1).setNumberFormat('0');       // #
       b.getRange(BOARD_DATA_ROW, bs + 5, blk.rows, 2).setNumberFormat('0');   // XRk, ADP
       b.getRange(BOARD_DATA_ROW, bs + 3, blk.rows, 2).setFontSize(8);      // Tm, Bye
-      b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setFontSize(8);      // P1, P2
+      b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 3).setFontSize(8);      // PS, PL, P2
       b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1).setNumberFormat('0');  // PAR
       b.getRange(BOARD_DATA_ROW, bs + 12, blk.rows, 1).setNumberFormat('0'); // Diff
-      b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setNumberFormat('0%');
+      b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 3).setNumberFormat('0%');
 
       // Color scales, three-point like the old sheet: rank columns are
       // "lowest is best", so colour saturates at the min and fades to white
@@ -453,7 +464,7 @@ function buildBoard_(ss) {
       // Survival odds: pale red = likely gone (act now), fading to nothing
       // when he is safe. No green — a high number needs no attention.
       rules.push(SpreadsheetApp.newConditionalFormatRule()
-        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2)])
+        .setRanges([b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 3)])
         .setGradientMinpointWithValue('#f4cccc', IT.NUMBER, '0')
         .setGradientMidpointWithValue('#fff2cc', IT.NUMBER, '0.5')
         .setGradientMaxpointWithValue('#ffffff', IT.NUMBER, '1')
