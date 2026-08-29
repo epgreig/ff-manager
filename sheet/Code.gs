@@ -187,14 +187,7 @@ function buildParams_(ss) {
     ['QB', 20, 2], ['RB', 56, 4], ['WR', 64, 6], ['TE', 16, 2], ['K', 8, 0], ['DST', 6, 0],
     ['LB', 8, 0], ['DB', 8, 0], ['DL', 8, 0],
   ]);
-  p.getRange('H7:J7').setValues([['1-gap', 'x-gap', 'PAR confidence']]).setFontWeight('bold');
-  // How much of a position's projected SPREAD you believe. 1 = take the
-  // projections at face value. Lower shrinks that position's PAR toward its
-  // replacement level, which is the honest way to say "I don't trust that the
-  // top guy here really beats the pack by this much". It scales gaps, wait
-  // costs and Risk with it, so it changes cross-position recommendations.
-  p.getRange('J8:J16').setValue(1);
-  p.getRange('K7').setValue('<- 1 = trust the projected spread; 0.7 = shrink it 30%');
+  p.getRange('H7:I7').setValues([['1-gap', 'x-gap']]).setFontWeight('bold');
   for (var i = 0; i < 9; i++) {
     var r = 8 + i;
     // Offence/K/DEF baselines come from Master, the three IDP slots from MasterIDP.
@@ -282,8 +275,7 @@ function buildMaster_(ss) {
        'IF($O2<>"",$O2,IF($F2<>"",$F2,400))))',
     Q: '=IF($A2="",FALSE,COUNTIF(Log!$B:$B,$A2)>0)',
     S: '=IF($A2="","",IFNA(INDEX(Targets!$B:$B,MATCH($M2,Targets!$D:$D,0)),""))',
-    T: '=IF($A2="","",ROUND(($I2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0))' +
-       '*IFNA(VLOOKUP($C2,Params!$A$8:$J$13,10,FALSE),1),0))',
+    T: '=IF($A2="","",ROUND($I2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0),0))',
     U: '=IF($A2="","",ROUND(MAXIFS($I:$I,$C:$C,$C2,$Q:$Q,FALSE)-$I2,0))',
     // Survival across the snake gaps, conditional on being here now.
     // LET names must not look like cell refs (s3 -> #NAME), hence sdev/base/targ.
@@ -324,8 +316,7 @@ function buildMasterIdp_(ss) {
   var f = {
     E: '=IF($A2="",FALSE,COUNTIF(Log!$B:$B,$A2)>0)',
     F: '=IF($A2="","",IFNA(INDEX(Targets!$B:$B,MATCH($H2,Targets!$D:$D,0)),""))',
-    G: '=IF($A2="","",ROUND(($D2-IFNA(VLOOKUP($B2,Params!$A$14:$D$16,4,FALSE),0))' +
-       '*IFNA(VLOOKUP($B2,Params!$A$14:$J$16,10,FALSE),1),0))',
+    G: '=IF($A2="","",ROUND($D2-IFNA(VLOOKUP($B2,Params!$A$14:$D$16,4,FALSE),0),0))',
     H: '=IF($A2="","",REGEXREPLACE(REGEXREPLACE(LOWER($A2),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$",""))',
   };
   for (var col in f) {
