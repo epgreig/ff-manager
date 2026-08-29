@@ -52,12 +52,14 @@ var DATA_URLS = {
   RawIDP: 'https://raw.githubusercontent.com/epgreig/ff-manager/master/out/idp.csv',
 };
 
-// master block: [#, fpid*, Player, Tm, Bye, XRk, ADP, PAR, P1, P2, P3*, Tgt*,
-//                 Diff, cum1*, eba1*, cum2*, eba2*, cum3*, eba3*]  (* = hidden)
-// The hidden tail drives the expected-best-available model at each of the next
-// three picks: cum is P(every better player is gone), eba the player's share of
-// the value you can still expect to get.
-function blockWidth_(b) { return b.type === 'master' ? 19 : 4; }
+// master block: [#, fpid*, Player, Tm, Bye, XRk, ADP, PAR, PS, PL, P2*, Tgt*,
+//                 Urg, Diff, cS*, eS*, cL*, eL*, c2*, e2*]   (* = hidden)
+// The hidden tail drives the expected-best-available model over each snake gap:
+// cum is P(every better player is gone), eba the player's share of the value
+// you can still expect to get. Urg is the share of a player's PAR that waiting
+// a full turn puts at risk — PAR is that same quantity at an infinite horizon,
+// so Urg says how much of it bites right now.
+function blockWidth_(b) { return b.type === 'master' ? 20 : 4; }
 
 function blockStarts_() {
   var starts = [], c = 1;
@@ -353,11 +355,12 @@ function buildBoard_(ss) {
     b.insertRowsAfter(b.getMaxRows(), needRows - b.getMaxRows());
   }
   var masterHeaders = ['#', 'id', 'Player', 'Tm', 'Bye', 'XRk', 'ADP', 'PAR', 'PS', 'PL',
-                       'P2', 'Tgt', 'Diff', 'cS', 'eS', 'cL', 'eL', 'c2', 'e2'];
+                       'P2', 'Tgt', 'Urg', 'Diff', 'cS', 'eS', 'cL', 'eL', 'c2', 'e2'];
   var idpHeaders = ['Player', 'Tm', 'PAR', 'Tgt'];
   var starts = blockStarts_();
   var rules = [];
-  var xrkRanges = [], adpRanges = [], parRanges = [], probRanges = [], masterRows = 0;
+  var xrkRanges = [], adpRanges = [], parRanges = [], probRanges = [], urgRanges = [];
+  var masterRows = 0;
   var IT = SpreadsheetApp.InterpolationType;
   var tagColors = [
     ['high target', '#f4cccc'],   // pale red
@@ -437,8 +440,18 @@ function buildBoard_(ss) {
       var playerL = colLetter_(bs + 2), ptsL = colLetter_(bs + 7);  // PAR column
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
         '=IF($' + playerL + BOARD_DATA_ROW + '="","",ROW()-' + (BOARD_DATA_ROW - 1) + ')');
+      // Urgency: the fraction of this player's PAR that waiting a full turn
+      // puts at risk. Blank where PAR <= 0 (the ratio stops meaning anything)
+      // and for K/DEF, which have no expected-best-available row.
+      var parC = colLetter_(bs + 7), ebaRow = { QB: 0, RB: 1, WR: 2, TE: 3 }[blk.pos];
+      if (ebaRow !== undefined) {
+        b.getRange(BOARD_DATA_ROW, bs + 12).setFormula(
+          '=IF(OR($' + parC + BOARD_DATA_ROW + '="",$' + parC + BOARD_DATA_ROW + '<=0),"",' +
+          'IFERROR(ROUND(($' + parC + BOARD_DATA_ROW + '-Params!$E$' + (EBA_ROW + 1 + ebaRow) +
+          ')/$' + parC + BOARD_DATA_ROW + ',2),""))');
+      }
       // Diff shown at row 2 (1-gap) and row x+1 (the x-gap), like the old sheet.
-      b.getRange(BOARD_DATA_ROW, bs + 12).setFormula(
+      b.getRange(BOARD_DATA_ROW, bs + 13).setFormula(
         '=IF($' + ptsL + BOARD_DATA_ROW + '="","",IF(OR(ROW()=' + (BOARD_DATA_ROW + 1) +
         ',ROW()=' + BOARD_DATA_ROW + '+Params!$C$' + PARAMS_POS_ROW[blk.pos] + '),' +
         'ROUND($' + ptsL + '$' + BOARD_DATA_ROW + '-$' + ptsL + BOARD_DATA_ROW + ',0),""))');
@@ -447,10 +460,10 @@ function buildBoard_(ss) {
       // this player's share of what you expect to still be there when you pick.
       var parL = colLetter_(bs + 7);
       var probL = [colLetter_(bs + 8), colLetter_(bs + 9), colLetter_(bs + 10)];
-      var cumL = [colLetter_(bs + 13), colLetter_(bs + 15), colLetter_(bs + 17)];
+      var cumL = [colLetter_(bs + 14), colLetter_(bs + 16), colLetter_(bs + 18)];
       var prev = BOARD_DATA_ROW - 1, first = BOARD_DATA_ROW;
-      [[bs + 13, probL[0], cumL[0]], [bs + 15, probL[1], cumL[1]],
-       [bs + 17, probL[2], cumL[2]]].forEach(function (spec) {
+      [[bs + 14, probL[0], cumL[0]], [bs + 16, probL[1], cumL[1]],
+       [bs + 18, probL[2], cumL[2]]].forEach(function (spec) {
         b.getRange(first, spec[0]).setFormula(
           '=IF($' + playerL + first + '="","",IF(ROW()=' + first + ',1,$' + spec[2] + prev +
           '*(1-$' + spec[1] + prev + ')))');
@@ -458,32 +471,35 @@ function buildBoard_(ss) {
           '=IF($' + playerL + first + '="","",$' + parL + first + '*$' + spec[1] + first +
           '*$' + colLetter_(spec[0]) + first + ')');
       });
-      [bs, bs + 12, bs + 13, bs + 14, bs + 15, bs + 16, bs + 17, bs + 18].forEach(function (c) {
+      [bs, bs + 12, bs + 13, bs + 14, bs + 15, bs + 16, bs + 17, bs + 18,
+       bs + 19].forEach(function (c) {
         b.getRange(BOARD_DATA_ROW, c, 1, 1).autoFill(
           b.getRange(BOARD_DATA_ROW, c, blk.rows, 1), SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
       });
 
-      // [#, fpid, Player, Tm, Bye, XRk, ADP, PAR, P1, P2, Tgt, Diff]
-      [24, 0, 114, 26, 22, 30, 30, 32, 26, 26, 26, 0, 30].forEach(function (w, k) {
+      // [#, fpid, Player, Tm, Bye, XRk, ADP, PAR, PS, PL, P2, Tgt, Urg, Diff]
+      [24, 0, 114, 26, 22, 30, 30, 32, 26, 26, 0, 0, 30, 30].forEach(function (w, k) {
         if (w) b.setColumnWidth(bs + k, w);
       });
       b.hideColumns(bs + 1);
-      b.hideColumns(bs + 11);     // Tgt: the name colour conveys it
-      b.hideColumns(bs + 13, 6);  // EBA working columns
+      b.hideColumns(bs + 10, 2);  // P2 feeds the model; Tgt drives name colour
+      b.hideColumns(bs + 14, 6);  // EBA working columns
       b.getRange(BOARD_DATA_ROW, bs, blk.rows, 1).setNumberFormat('0');       // #
       b.getRange(BOARD_DATA_ROW, bs + 5, blk.rows, 2).setNumberFormat('0');   // XRk, ADP
       b.getRange(BOARD_DATA_ROW, bs + 3, blk.rows, 2).setFontSize(8);      // Tm, Bye
-      b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 3).setFontSize(8);      // PS, PL, P2
+      b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setFontSize(8);      // PS, PL
+      b.getRange(BOARD_DATA_ROW, bs + 12, blk.rows, 1).setNumberFormat('0%'); // Urg
       b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1).setNumberFormat('0');  // PAR
-      b.getRange(BOARD_DATA_ROW, bs + 12, blk.rows, 1).setNumberFormat('0'); // Diff
-      b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 3).setNumberFormat('0%');
+      b.getRange(BOARD_DATA_ROW, bs + 13, blk.rows, 1).setNumberFormat('0'); // Diff
+      b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2).setNumberFormat('0%');
 
       // Gather ranges; colour rules are applied once across every panel below,
       // so a rank or PAR colour means the same thing in each of them.
       xrkRanges.push(b.getRange(BOARD_DATA_ROW, bs + 5, blk.rows, 1));
       adpRanges.push(b.getRange(BOARD_DATA_ROW, bs + 6, blk.rows, 1));
       parRanges.push(b.getRange(BOARD_DATA_ROW, bs + 7, blk.rows, 1));
-      probRanges.push(b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 3));
+      probRanges.push(b.getRange(BOARD_DATA_ROW, bs + 8, blk.rows, 2));
+      urgRanges.push(b.getRange(BOARD_DATA_ROW, bs + 12, blk.rows, 1));
       masterRows += blk.rows;
     } else {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([idpHeaders]).setFontWeight('bold');
@@ -537,6 +553,13 @@ function buildBoard_(ss) {
     .setGradientMinpointWithValue('#f4cccc', IT.NUMBER, '0')
     .setGradientMidpointWithValue('#fff2cc', IT.NUMBER, '0.5')
     .setGradientMaxpointWithValue('#ffffff', IT.NUMBER, '1')
+    .build());
+  // Urgency runs the other way: the more of his value is at stake, the redder.
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .setRanges(urgRanges)
+    .setGradientMinpointWithValue('#ffffff', IT.NUMBER, '0')
+    .setGradientMidpointWithValue('#fff2cc', IT.NUMBER, '0.5')
+    .setGradientMaxpointWithValue('#f4cccc', IT.NUMBER, '1')
     .build());
 
   b.setConditionalFormatRules(rules);
