@@ -1,7 +1,20 @@
 {
   "timeZone": "America/Toronto",
-  "dependencies": {
-  },
+  "dependencies": {},
   "exceptionLogging": "STACKDRIVER",
-  "runtimeVersion": "V8"
+  "runtimeVersion": "V8",
+  "sheets": {
+    "macros": [
+      {
+        "menuName": "Mark drafted",
+        "functionName": "markDrafted",
+        "defaultShortcut": "Ctrl+Alt+Shift+1"
+      },
+      {
+        "menuName": "Undo last pick",
+        "functionName": "undoLastPick",
+        "defaultShortcut": "Ctrl+Alt+Shift+2"
+      }
+    ]
+  }
 }
