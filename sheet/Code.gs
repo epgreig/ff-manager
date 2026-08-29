@@ -222,11 +222,12 @@ function buildParams_(ss) {
   p.getRange('B22').setFormula('=IFERROR(MIN(FILTER($F$2:$F$21,$F$2:$F$21>$B$21)),999)');
   p.getRange('B23').setFormula('=IFERROR(MAX(FILTER(Master!$T$2:$T,Master!$Q$2:$Q=FALSE)),"")');
   // Tag nudges: a deliberate thumb on the scale, not a re-projection.
-  p.getRange('D18:E18').setValues([['tag', 'pts adj']]).setFontWeight('bold');
-  p.getRange('D19:E22').setValues([
+  // Keep clear of E2:F21 — that is the snake-pick table.
+  p.getRange('G18:H18').setValues([['tag', 'pts adj']]).setFontWeight('bold');
+  p.getRange('G19:H22').setValues([
     ['high target', 0.04], ['medium target', 0.04], ['mild target', 0.02], ['averse', -0.02],
   ]);
-  p.getRange('E19:E22').setNumberFormat('0%');
+  p.getRange('H19:H22').setNumberFormat('0%');
   p.getRange('E1:F1').setValues([['round', 'my pick']]);
   for (var r = 1; r <= 20; r++) {
     p.getRange(1 + r, 5).setValue(r);
@@ -293,7 +294,7 @@ function buildMaster_(ss) {
     // PAR runs off the tag-adjusted points, but the replacement baseline stays
     // on the raw projections — a preference should move a player, not the bar.
     T: '=IF($A2="","",ROUND($Z2-IFNA(VLOOKUP($C2,Params!$A$8:$D$13,4,FALSE),0),0))',
-    Z: '=IF($A2="","",ROUND($I2*(1+IFNA(VLOOKUP($S2,Params!$D$19:$E$22,2,FALSE),0)),1))',
+    Z: '=IF($A2="","",ROUND($I2*(1+IFNA(VLOOKUP($S2,Params!$G$19:$H$22,2,FALSE),0)),1))',
     U: '=IF($A2="","",ROUND(MAXIFS($I:$I,$C:$C,$C2,$Q:$Q,FALSE)-$I2,0))',
     // Survival across the snake gaps, conditional on being here now.
     // LET names must not look like cell refs (s3 -> #NAME), hence sdev/base/targ.
@@ -337,7 +338,7 @@ function buildMasterIdp_(ss) {
        'COUNTIF(Targets!$G:$G,$H2)>0,"medium target",' +
        'COUNTIF(Targets!$H:$H,$H2)>0,"mild target",' +
        'COUNTIF(Targets!$I:$I,$H2)>0,"averse",TRUE,""))',
-    G: '=IF($A2="","",ROUND($D2*(1+IFNA(VLOOKUP($F2,Params!$D$19:$E$22,2,FALSE),0))' +
+    G: '=IF($A2="","",ROUND($D2*(1+IFNA(VLOOKUP($F2,Params!$G$19:$H$22,2,FALSE),0))' +
        '-IFNA(VLOOKUP($B2,Params!$A$14:$D$16,4,FALSE),0),0))',
     H: '=IF($A2="","",REGEXREPLACE(REGEXREPLACE(LOWER($A2),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$",""))',
   };
