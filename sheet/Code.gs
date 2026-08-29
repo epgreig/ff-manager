@@ -333,8 +333,12 @@ function buildMasterIdp_(ss) {
   m.getRange('A2').setFormula('=FILTER(RawIDP!A2:D, RawIDP!A2:A<>"")');
   var f = {
     E: '=IF($A2="",FALSE,COUNTIF(Log!$B:$B,$A2)>0)',
-    F: '=IF($A2="","",IFNA(INDEX(Targets!$B:$B,MATCH($H2,Targets!$D:$D,0)),""))',
-    G: '=IF($A2="","",ROUND($D2-IFNA(VLOOKUP($B2,Params!$A$14:$D$16,4,FALSE),0),0))',
+    F: '=IF($A2="","",IFS(COUNTIF(Targets!$F:$F,$H2)>0,"high target",' +
+       'COUNTIF(Targets!$G:$G,$H2)>0,"medium target",' +
+       'COUNTIF(Targets!$H:$H,$H2)>0,"mild target",' +
+       'COUNTIF(Targets!$I:$I,$H2)>0,"averse",TRUE,""))',
+    G: '=IF($A2="","",ROUND($D2*(1+IFNA(VLOOKUP($F2,Params!$D$19:$E$22,2,FALSE),0))' +
+       '-IFNA(VLOOKUP($B2,Params!$A$14:$D$16,4,FALSE),0),0))',
     H: '=IF($A2="","",REGEXREPLACE(REGEXREPLACE(LOWER($A2),"[.\'’-]","")," (jr|sr|ii|iii|iv|v)$",""))',
   };
   for (var col in f) {
@@ -526,7 +530,7 @@ function buildBoard_(ss) {
       b.getRange(HEADER_ROW, bs, 1, width).setValues([idpHeaders]).setFontWeight('bold');
       b.getRange(BOARD_DATA_ROW, bs).setFormula(
         '=IFERROR(QUERY(MasterIDP!$A$2:$H,"select A,C,G,F where B=\'' + blk.pos +
-        '\' and E=false order by D desc limit ' + blk.rows + '",0),"")');
+        '\' and E=false order by G desc limit ' + blk.rows + '",0),"")');
       [132, 28, 38, 22].forEach(function (w, k) { b.setColumnWidth(bs + k, w); });
       b.hideColumns(bs + 3);  // Tgt
       b.getRange(BOARD_DATA_ROW, bs + 1, blk.rows, 1).setFontSize(8);       // Tm
