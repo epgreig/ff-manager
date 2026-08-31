@@ -266,7 +266,7 @@ def main():
             print(f"  {pos:4s} {scale[pos]:.3f}  (n={n}){flag}")
 
     w_wwo = config.BLEND_WEIGHT_WWO
-    out_rows = []
+    out_rows, overridden = [], []
     for r in fp:
         wp = wwo_pts.get(r["fpid"])
         if wp is not None and config.RESCALE_WWO and scale.get(r["position"]):
@@ -280,8 +280,13 @@ def main():
         if r.get("fp_default_scoring"):
             src += "_fpdefault"  # points are FantasyPros' scoring, not the league's
         bye, fadp = ffc_info.get(player_key(r["name"], r["position"]), ("", ""))
+        # Applied only at write time, so the per-position rescale above still
+        # sees him among his real position's players.
+        pos_out = config.POSITION_OVERRIDES.get(r["name"].strip().lower(), r["position"])
+        if pos_out != r["position"]:
+            overridden.append(f"{r['name']} {r['position']} -> {pos_out}")
         out_rows.append({
-            "fpid": r["fpid"], "name": r["name"], "position": r["position"], "team": r["team"],
+            "fpid": r["fpid"], "name": r["name"], "position": pos_out, "team": r["team"],
             "bye": bye, "ffc_adp": fadp,
             "fp_pts": round(r["fp_pts"], 1),
             "wwo_pts": "" if wp is None else round(wp, 1),
@@ -293,6 +298,9 @@ def main():
     write_csv_dicts(OUT_PATH, out_rows,
                     ["fpid", "name", "position", "team", "bye", "ffc_adp", "fp_pts", "wwo_pts",
                      "blend_pts", "source", "diff", "wwo_7d_delta"])
+    if overridden:
+        print("Position overrides (off the offensive board, still in the data): "
+              + "; ".join(overridden))
     no_bye = sum(1 for r in out_rows if r["bye"] == "")
     if no_bye:
         print(f"{no_bye} players without bye/ffc_adp (not in FFC's ~230-player feed — fine for deep names)")

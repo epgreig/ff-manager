@@ -34,6 +34,14 @@ COUNTS = {"QB": 45, "RB": 120, "WR": 140, "TE": 60, "K": 25}
 # can move a player 80 points between runs.
 FRESH_HOURS = 24
 
+# Board position overrides, keyed by lower-case name. A dual-eligible player
+# belongs in the slot you would actually start him in; the board has one row per
+# player, so putting him in both would double-count him. The overridden position
+# matches no panel, so he disappears from the offensive board while his row —
+# and his projection — stay in the data. data/manual_idp.csv's add_offense
+# lookup matches on NAME, so his offensive points still feed his IDP value.
+POSITION_OVERRIDES = {"travis hunter": "DUAL"}
+
 # The WinWithOdds download in data/ (pinned by name — data/ also holds the
 # FantasyPros IDP CSVs, so "newest file" discovery is not safe).
 WWO_FILE = "season_long_proj_table.csv"
