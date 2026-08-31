@@ -176,7 +176,8 @@ function buildParams_(ss) {
   p.clear();
   p.getRange('A1:B6').setValues([
     ['Teams', 12],
-    ['My draft slot', 5],
+    ['My draft slot (set on Board)', '=IFERROR(IF(Board!$' + colLetter_(blockStarts_()[1] + 3) +
+      '$1="",5,Board!$' + colLetter_(blockStarts_()[1] + 3) + '$1),5)'],
     ['Rounds', 20],
     ['Sigma min (picks)', 4],
     ['Sigma k (× rank)', 0.18],
@@ -365,6 +366,14 @@ function colLetter_(n) {
 
 function buildBoard_(ss) {
   var b = getOrCreate_(ss, 'Board');
+  // The draft slot is an INPUT and lives on this sheet. Read it before clear()
+  // wipes the board, so rebuilding never silently resets it.
+  var slotCol = blockStarts_()[1] + 3;
+  var savedSlot = 5;
+  if (b.getMaxColumns() >= slotCol) {
+    var prev = b.getRange(1, slotCol).getValue();
+    if (typeof prev === 'number' && prev >= 1) savedSlot = prev;
+  }
   b.clear();
   b.clearConditionalFormatRules();
   b.setFrozenRows(0);
@@ -434,16 +443,22 @@ function buildBoard_(ss) {
     b.getRange(i + 1, 4, 1, 5).merge().setFormula(row[1]);
     b.getRange(i + 1, 9).setFormula(row[2]);
   });
+  var sc = starts0[1];  // second panel: label spans #/id/Player, value Tm..ADP
+  b.getRange(1, sc, 1, 3).merge().setValue('My draft slot  (type here)')
+    .setFontWeight('bold');
+  b.getRange(1, sc + 3, 1, 4).merge().setValue(savedSlot)
+    .setBackground('#fff2cc').setFontWeight('bold').setHorizontalAlignment('center')
+    .setBorder(true, true, true, true, false, false)
+    .setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireNumberBetween(1, 20).setHelpText('Your pick in round 1.').build());
   var status = [
     ['Current pick', '=Params!$B$19'],
     ['My next pick', '=Params!$B$20'],
     ['Then', '=Params!$B$21'],
-    ['Picks until mine', '=IFERROR(MAX(0,Params!$B$20-Params!$B$19),"")'],
   ];
-  var sc = starts0[1];  // second panel: label spans #/id/Player, value Tm..ADP
   status.forEach(function (row, i) {
-    b.getRange(i + 1, sc, 1, 3).merge().setValue(row[0]).setFontWeight('bold');
-    b.getRange(i + 1, sc + 3, 1, 4).merge().setFormula(row[1]);
+    b.getRange(i + 2, sc, 1, 3).merge().setValue(row[0]).setFontWeight('bold');
+    b.getRange(i + 2, sc + 3, 1, 4).merge().setFormula(row[1]);
   });
 
   BLOCKS.forEach(function (blk, i) {
