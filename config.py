@@ -19,8 +19,8 @@ SCORING_RULES = {
 # the live prop market it advertises. Ciely (The Athletic) replaces it — one
 # sharp analyst rather than a consensus, so genuinely diversifying, and his
 # 08-31 file already prices news ours does not.
-BLEND_WEIGHT_WWO = 0.0
-BLEND_WEIGHT_CIELY = 0.35
+BLEND_WEIGHT_WWO = 0.10
+BLEND_WEIGHT_CIELY = 0.30
 
 # Ciely's workbook: 'Ranks w Proj' holds four side-by-side blocks. Bounds are
 # explicit half-open column ranges because a scan would run into the next block.
