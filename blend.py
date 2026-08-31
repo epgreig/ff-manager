@@ -369,8 +369,11 @@ def main():
         })
     out_rows.sort(key=lambda r: -r["blend_pts"])
     write_csv_dicts(OUT_PATH, out_rows,
-                    ["fpid", "name", "position", "team", "bye", "ffc_adp", "fp_pts", "ciely_pts",
-                     "wwo_pts", "blend_pts", "source", "diff", "wwo_7d_delta"])
+                    # The sheet's Master reads a FIXED Raw!A2:L, so the first
+                    # twelve columns are a contract — never insert into them.
+                    # New columns go on the end.
+                    ["fpid", "name", "position", "team", "bye", "ffc_adp", "fp_pts", "wwo_pts",
+                     "blend_pts", "source", "diff", "wwo_7d_delta", "ciely_pts"])
     if overridden:
         print("Position overrides (off the offensive board, still in the data): "
               + "; ".join(overridden))
