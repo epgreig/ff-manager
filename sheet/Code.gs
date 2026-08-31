@@ -232,7 +232,7 @@ function buildParams_(ss) {
   // Keep clear of E2:F21 — that is the snake-pick table.
   p.getRange('G18:H18').setValues([['tag', 'pts adj']]).setFontWeight('bold');
   p.getRange('G19:H22').setValues([
-    ['high target', 0], ['medium target', 0], ['mild target', 0], ['averse', 0],
+    ['high target', 0], ['medium target', 0], ['mild target', 0], ['averse', -0.04],
   ]);
   p.getRange('H19:H22').setNumberFormat('0%');
   p.getRange('E1:F1').setValues([['round', 'my pick']]);
