@@ -244,7 +244,7 @@ function buildParams_(ss) {
   var starts = blockStarts_();
   var er = EBA_ROW + 1;
   BLOCKS.forEach(function (blk, i) {
-    if (blk.type !== 'master' || ['K', 'DST'].indexOf(blk.pos) >= 0) return;
+    if (blk.type !== 'master') return;  // rows: QB RB WR TE DST K, in BLOCKS order
     var bs = starts[i];
     var first = BOARD_DATA_ROW, last = BOARD_DATA_ROW + blk.rows - 1;
     var parL = colLetter_(bs + 7);
@@ -300,7 +300,7 @@ function buildMaster_(ss) {
     // able to take at this position next turn). Blank for drafted players and
     // for K/DEF, which have no expected-best-available row.
     AA: '=IF($A2="","",IF($Q2,"",IFERROR(ROUND((1-$W2)*($T2-VLOOKUP($C2,' +
-        'Params!$A$' + (EBA_ROW + 1) + ':$E$' + (EBA_ROW + 4) + ',5,FALSE)),0),"")))',
+        'Params!$A$' + (EBA_ROW + 1) + ':$E$' + (EBA_ROW + 6) + ',5,FALSE)),0),"")))',
     U: '=IF($A2="","",ROUND(MAXIFS($I:$I,$C:$C,$C2,$Q:$Q,FALSE)-$I2,0))',
     // Survival across the snake gaps, conditional on being here now.
     // LET names must not look like cell refs (s3 -> #NAME), hence sdev/base/targ.
@@ -406,7 +406,7 @@ function buildBoard_(ss) {
   // EBA table holds the wait cost for the short gap, long gap and both.
   var waitRow = function (n) {
     var col = colLetter_(4 + 2 * (n - 1));
-    var lo = EBA_ROW + 1, hi = EBA_ROW + 4;
+    var lo = EBA_ROW + 1, hi = EBA_ROW + 4;  // QB/RB/WR/TE only — never K/DEF
     var rng = 'Params!$' + col + '$' + lo + ':$' + col + '$' + hi;
     var pos = 'INDEX(Params!$A$' + lo + ':$A$' + hi + ',MATCH(MAX(' + rng + '),' + rng + ',0))';
     return ['Costliest ' + ['S', 'L', '2'][n - 1] + '-wait',
@@ -469,7 +469,7 @@ function buildBoard_(ss) {
       // PAN — Points Above Next: P(gone) x (his PAR - the fallback you expect
       // at this position next turn). Computed here, not read from Master.AA.
       var parC = colLetter_(bs + 7), plC = colLetter_(bs + 9);
-      var ebaRow = { QB: 0, RB: 1, WR: 2, TE: 3 }[blk.pos];
+      var ebaRow = { QB: 0, RB: 1, WR: 2, TE: 3, DST: 4, K: 5 }[blk.pos];
       if (ebaRow !== undefined) {
         b.getRange(BOARD_DATA_ROW, bs + 12).setFormula(
           '=IF(OR($' + parC + BOARD_DATA_ROW + '="",$' + plC + BOARD_DATA_ROW + '=""),"",' +
