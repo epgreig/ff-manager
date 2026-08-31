@@ -87,6 +87,11 @@ function buildSheet() {
   buildMasterIdp_(ss);
   buildBoard_(ss);
   snapshotBackup_(ss);
+  try {
+    protectSheets_(ss);
+  } catch (e) {
+    ss.toast('Built, but protections failed: ' + e.message);  // never block a rebuild
+  }
   ss.toast('Sheet built. Import blended.csv into Raw, paste Yahoo ranks, set your slot on Params.');
 }
 
@@ -657,6 +662,51 @@ function refreshData() {
   buildBoard_(ss);
   snapshotBackup_(ss);
   ss.toast('Raw + RawIDP refreshed from GitHub; formulas resized to the new data.');
+}
+
+/**
+ * Warning-only protection on everything the script computes, so a second pair
+ * of hands cannot quietly type over a formula mid-draft. Warning-only rather
+ * than locked: a co-owner can still override deliberately, they just have to
+ * mean it. Editable by design: YahooRaw and Targets (paste/type there), the
+ * Board's draft-slot cell, Yahoo column G, and the Params knobs.
+ */
+function protectSheets_(ss) {
+  var TAG = 'ff-manager computed';
+  // Drop ours first, or every rebuild stacks another copy.
+  [SpreadsheetApp.ProtectionType.SHEET, SpreadsheetApp.ProtectionType.RANGE]
+    .forEach(function (t) {
+      ss.getProtections(t).forEach(function (p) {
+        if ((p.getDescription() || '').indexOf(TAG) === 0) p.remove();
+      });
+    });
+
+  ['Master', 'MasterIDP', 'Board', 'BoardBackup', 'Raw', 'RawIDP', 'Log']
+    .forEach(function (n) {
+      var sh = ss.getSheetByName(n);
+      if (!sh) return;
+      var p = sh.protect().setDescription(TAG + ' — do not edit by hand')
+        .setWarningOnly(true);
+      if (n === 'Board') {
+        p.setUnprotectedRanges([sh.getRange(1, blockStarts_()[1] + 3)]);  // draft slot
+      }
+    });
+
+  var y = ss.getSheetByName('Yahoo');
+  if (y) {
+    y.protect().setDescription(TAG + ' — parsed from YahooRaw; type fixes in column G')
+      .setWarningOnly(true)
+      .setUnprotectedRanges([y.getRange('G1:G400')]);
+  }
+
+  // Params is half knobs, half formulas — protect only the formulas.
+  var p = ss.getSheetByName('Params');
+  if (p) {
+    ['D8:D16', 'H8:I13', 'E2:F21', 'B19:B26', 'A' + EBA_ROW + ':H' + (EBA_ROW + 4)]
+      .forEach(function (a1) {
+        p.getRange(a1).protect().setDescription(TAG + ' — derived').setWarningOnly(true);
+      });
+  }
 }
 
 // ---------- draft macros ----------
