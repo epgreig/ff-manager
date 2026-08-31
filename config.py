@@ -29,6 +29,11 @@ RESCALE_WWO = True
 # pipeline). Actual counts are limited by the candidate seed (FFC ADP + WWO).
 COUNTS = {"QB": 45, "RB": 120, "WR": 140, "TE": 60, "K": 25}
 
+# How long a cached projection counts as current in --cache mode. 24h is fine
+# in the quiet weeks; drop it to 6 or less on draft week, when one suspension
+# can move a player 80 points between runs.
+FRESH_HOURS = 24
+
 # The WinWithOdds download in data/ (pinned by name — data/ also holds the
 # FantasyPros IDP CSVs, so "newest file" discovery is not safe).
 WWO_FILE = "season_long_proj_table.csv"

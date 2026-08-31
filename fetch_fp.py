@@ -181,15 +181,21 @@ def compile_and_write(players: dict, complete: bool):
 
 
 def load_batch_cache() -> tuple[dict, dict]:
-    """(fresh, stale) player dicts from every cached batch, split at 24h."""
+    """(fresh, stale) player dicts from every cached batch.
+
+    Files are read OLDEST FIRST so a newer batch always overwrites an older one
+    for the same player; glob order is arbitrary, so without the sort an Aug 25
+    projection could silently win over an Aug 30 one.
+    """
     import time as _t
 
     fresh: dict[int, dict] = {}
     stale: dict[int, dict] = {}
     batches_dir = CACHE / "batches"
     if batches_dir.exists():
-        for f in batches_dir.glob("*.json"):
-            target = fresh if _t.time() - f.stat().st_mtime < 86400 else stale
+        cutoff = config.FRESH_HOURS * 3600
+        for f in sorted(batches_dir.glob("*.json"), key=lambda p: p.stat().st_mtime):
+            target = fresh if _t.time() - f.stat().st_mtime < cutoff else stale
             for p in json.loads(f.read_text()).get("players") or []:
                 target[p["fpid"]] = flatten(p)
     return fresh, stale
@@ -230,6 +236,8 @@ def main():
 
     fresh, stale = load_batch_cache()
     if mode == "cache":
+        print(f"(cache mode treats anything fetched in the last {config.FRESH_HOURS}h as "
+              f"current; use --full to refetch regardless)")
         # Incremental: fresh (<24h) cache satisfies a player outright; only
         # missing or stale players are requested. Stale copies remain the
         # fallback if quota dies before they're refreshed.
