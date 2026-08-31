@@ -157,6 +157,32 @@ def write_idp():
             pts = sum(float(r[c] or 0) * w for c, w in config.IDP_SCORING.items() if c in r)
             rows.append({"name": r["Player"], "position": pos, "team": r.get("Team", ""),
                          "idp_pts": round(pts, 1)})
+    # Manually supplied IDP lines (players no source projects — e.g. Travis
+    # Hunter, whom FantasyPros classifies WR-only). Same scoring path as the
+    # real files; provenance is recorded in the file itself.
+    manual = ROOT / "data" / "manual_idp.csv"
+    if manual.exists():
+        for r in read_csv_dicts(manual):
+            if not r.get("Player", "").strip():
+                continue
+            pts = sum(float(r[c] or 0) * w for c, w in config.IDP_SCORING.items() if c in r)
+            # Yahoo counts every stat a player records, whichever slot he fills.
+            # For a dual-eligible player the value of using the DB slot is his
+            # offence AND his defence, so add his blended offensive total.
+            off = 0.0
+            if r.get("add_offense", "").strip().lower() in ("y", "yes", "true", "1"):
+                for b in (read_csv_dicts(OUT_PATH) if OUT_PATH.exists() else []):
+                    if norm_name(b["name"]) == norm_name(r["Player"]):
+                        off = float(b["blend_pts"])
+                        break
+                if not off:
+                    print(f"  WARNING: {r['Player']} flagged add_offense but no offensive "
+                          f"row found in blended.csv — using defence only.")
+            rows.append({"name": r["Player"], "position": r.get("Pos", "DB").strip() or "DB",
+                         "team": r.get("Team", ""), "idp_pts": round(pts + off, 1)})
+            print(f"IDP MANUAL ESTIMATE (not a sourced projection): {r['Player']} "
+                  f"= {pts:.1f} defensive" + (f" + {off:.1f} offensive = {pts + off:.1f}" if off else ""))
+
     if rows:
         rows.sort(key=lambda r: -r["idp_pts"])
         write_csv_dicts(ROOT / "out" / "idp.csv", rows, ["name", "position", "team", "idp_pts"])
