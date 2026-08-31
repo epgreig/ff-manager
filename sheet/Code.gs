@@ -424,20 +424,27 @@ function buildBoard_(ss) {
     var rng = 'Params!$' + col + '$' + lo + ':$' + col + '$' + hi;
     var pos = 'INDEX(Params!$A$' + lo + ':$A$' + hi + ',MATCH(MAX(' + rng + '),' + rng + ',0))';
     return ['Costliest ' + ['S', 'L', '2'][n - 1] + '-wait',
-      '=IFERROR(LET(p,' + pos + ',INDEX(Master!$B:$B,' +
-        'MATCH(MAXIFS(Master!$T:$T,Master!$C:$C,p,Master!$Q:$Q,FALSE),Master!$T:$T,0))),"")',
+      '=IFERROR(LET(bestpos,' + pos + ',' +
+        'nms,FILTER(Master!$B$2:$B,Master!$C$2:$C=bestpos,Master!$Q$2:$Q=FALSE),' +
+        'vals,FILTER(Master!$T$2:$T,Master!$C$2:$C=bestpos,Master!$Q$2:$Q=FALSE),' +
+        'INDEX(nms,MATCH(MAX(vals),vals,0))),"")',
       '=IFERROR(ROUND(MAX(' + rng + '),0),"")'];
   };
   var summary = [
     ['Highest X-rank',
-     '=IFERROR(INDEX(Master!$B:$B,MATCH(MINIFS(Master!$N:$N,Master!$Q:$Q,FALSE,Master!$N:$N,">0"),Master!$N:$N,0)),"")',
+     '=IFERROR(LET(nms,FILTER(Master!$B$2:$B,Master!$Q$2:$Q=FALSE,Master!$N$2:$N>0),' +
+       'vals,FILTER(Master!$N$2:$N,Master!$Q$2:$Q=FALSE,Master!$N$2:$N>0),' +
+       'INDEX(nms,MATCH(MIN(vals),vals,0))),"")',
      '=IFERROR(MINIFS(Master!$N:$N,Master!$Q:$Q,FALSE,Master!$N:$N,">0"),"")'],
     ['Highest ADP',
-     '=IFERROR(INDEX(Master!$B:$B,MATCH(MINIFS(Master!$O:$O,Master!$Q:$Q,FALSE,Master!$O:$O,">0"),Master!$O:$O,0)),"")',
+     '=IFERROR(LET(nms,FILTER(Master!$B$2:$B,Master!$Q$2:$Q=FALSE,Master!$O$2:$O>0),' +
+       'vals,FILTER(Master!$O$2:$O,Master!$Q$2:$Q=FALSE,Master!$O$2:$O>0),' +
+       'INDEX(nms,MATCH(MIN(vals),vals,0))),"")',
      '=IFERROR(MINIFS(Master!$O:$O,Master!$Q:$Q,FALSE,Master!$O:$O,">0"),"")'],
     ['Biggest PAN',
-     '=IFERROR(INDEX(Master!$B:$B,MATCH(MAXIFS(Master!$AA:$AA,Master!$Q:$Q,FALSE),' +
-       'Master!$AA:$AA,0)),"")',
+     '=IFERROR(LET(nms,FILTER(Master!$B$2:$B,Master!$Q$2:$Q=FALSE,Master!$AA$2:$AA<>""),' +
+       'vals,FILTER(Master!$AA$2:$AA,Master!$Q$2:$Q=FALSE,Master!$AA$2:$AA<>""),' +
+       'INDEX(nms,MATCH(MAX(vals),vals,0))),"")',
      '=IFERROR(ROUND(MAXIFS(Master!$AA:$AA,Master!$Q:$Q,FALSE),0),"")'],
     waitRow(1),
     waitRow(2),
