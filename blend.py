@@ -136,6 +136,40 @@ def fp_site_fallback(have_fpids, have_keys, aliases):
     return added, unmapped
 
 
+def load_ciely():
+    """Jake Ciely's (The Athletic) workbook -> {(norm name, pos): league points}.
+
+    Points are computed from his component stats under league scoring, never
+    his FPS column — his settings use -2 interceptions where the league uses
+    -1, and he carries no fumbles column at all (so his totals run slightly
+    high; the per-position rescale absorbs that).
+    """
+    path = ROOT / "data" / config.CIELY_FILE
+    if not path.exists():
+        print(f"No {config.CIELY_FILE} in data/ — skipping Ciely.")
+        return {}
+    import xlsx_read
+
+    rows = xlsx_read.read(str(path), config.CIELY_SHEET)
+    hdr = rows[0]
+    out = {}
+    for pos, (a, b) in config.CIELY_BLOCKS.items():
+        cols = {i: config.CIELY_COLS[hdr[i]] for i in range(a, min(b, len(hdr)))
+                if hdr[i] in config.CIELY_COLS}
+        if not cols:
+            print(f"  WARNING: no known columns in Ciely block {pos} ({a}-{b}) — "
+                  f"headers may have moved; check config.CIELY_BLOCKS.")
+            continue
+        for r in rows[1:]:
+            if len(r) <= a + 1 or not r[a + 1].strip():
+                continue
+            pts = sum(_f(r[i]) * config.SCORING_RULES[k] for i, k in cols.items() if i < len(r))
+            if pts:
+                out[(norm_name(r[a + 1].strip()), pos)] = pts
+    print(f"Ciely source: {path.name} ({len(out)} players, points computed under league scoring)")
+    return out
+
+
 def load_wwo():
     path = find_wwo(ROOT / "data", config.WWO_FILE)
     if path is None:
@@ -230,6 +264,16 @@ def main():
         by_name[player_key(r["name"], "")].append(r)
         by_fpid[r["fpid"]] = r
 
+    ciely_raw = load_ciely()
+    ciely_pts = {}  # fpid -> points, matched by normalized name + position
+    ciely_unmatched = []
+    for (nm, pos), pts in ciely_raw.items():
+        hit = [r for r in fp if norm_name(r["name"]) == nm and r["position"] == pos]
+        if hit:
+            ciely_pts[hit[0]["fpid"]] = pts
+        else:
+            ciely_unmatched.append(f"{nm} ({pos})")
+
     wwo_pts = {}  # fpid -> points
     wwo_delta = {}  # fpid -> 7-day move on WWO's own (full-PPR) scale; staleness indicator
     wwo_unmatched = []
@@ -265,16 +309,44 @@ def main():
             flag = "  <-- level disagreement, check scoring assumptions" if abs(scale[pos] - 1) > 0.08 else ""
             print(f"  {pos:4s} {scale[pos]:.3f}  (n={n}){flag}")
 
-    w_wwo = config.BLEND_WEIGHT_WWO
+    # Ciely rides on the same per-position rescale idea as WWO: put him on FP's
+    # level first so a level difference cannot masquerade as an opinion.
+    cscale = {}
+    if ciely_pts:
+        csum = defaultdict(lambda: [0.0, 0.0, 0])
+        for r in fp:
+            if r["fpid"] in ciely_pts and r["fp_pts"] > 0:
+                s = csum[r["position"]]
+                s[0] += ciely_pts[r["fpid"]]; s[1] += r["fp_pts"]; s[2] += 1
+        print("\nCiely level vs FantasyPros by position:")
+        for pos, (sc, sf, n) in sorted(csum.items()):
+            cscale[pos] = sc / sf
+            print(f"  {pos:4s} {cscale[pos]:.3f}  (n={n})")
+        if ciely_unmatched:
+            print(f"  {len(ciely_unmatched)} Ciely players unmatched (mostly deep backups): "
+                  + ", ".join(sorted(ciely_unmatched)[:6]) + " ...")
+
+    w_wwo, w_ciely = config.BLEND_WEIGHT_WWO, config.BLEND_WEIGHT_CIELY
     out_rows, overridden = [], []
     for r in fp:
         wp = wwo_pts.get(r["fpid"])
         if wp is not None and config.RESCALE_WWO and scale.get(r["position"]):
             wp = wp / scale[r["position"]]
-        if wp is None:
-            blend, src = r["fp_pts"], "fp_only"
-        else:
-            blend, src = w_wwo * wp + (1 - w_wwo) * r["fp_pts"], "blend"
+        cp = ciely_pts.get(r["fpid"])
+        if cp is not None and cscale.get(r["position"]):
+            cp = cp / cscale[r["position"]]
+        # Weights apply only to the sources that actually cover this player;
+        # whatever is unused falls back to FantasyPros rather than dragging the
+        # blend toward zero.
+        parts = [(r["fp_pts"], 1.0 - (w_wwo if wp is not None else 0)
+                  - (w_ciely if cp is not None else 0))]
+        if wp is not None:
+            parts.append((wp, w_wwo))
+        if cp is not None:
+            parts.append((cp, w_ciely))
+        blend = sum(v * w for v, w in parts)
+        tags = ("W" if wp is not None and w_wwo else "") + ("C" if cp is not None and w_ciely else "")
+        src = ("blend" + tags) if tags else "fp_only"
         if r.get("from_csv"):
             src += "_csv"  # FP side came from the site download, not the API
         if r.get("fp_default_scoring"):
@@ -289,6 +361,7 @@ def main():
             "fpid": r["fpid"], "name": r["name"], "position": pos_out, "team": r["team"],
             "bye": bye, "ffc_adp": fadp,
             "fp_pts": round(r["fp_pts"], 1),
+            "ciely_pts": "" if cp is None else round(cp, 1),
             "wwo_pts": "" if wp is None else round(wp, 1),
             "blend_pts": round(blend, 1), "source": src,
             "diff": "" if wp is None else round(wp - r["fp_pts"], 1),
@@ -296,8 +369,8 @@ def main():
         })
     out_rows.sort(key=lambda r: -r["blend_pts"])
     write_csv_dicts(OUT_PATH, out_rows,
-                    ["fpid", "name", "position", "team", "bye", "ffc_adp", "fp_pts", "wwo_pts",
-                     "blend_pts", "source", "diff", "wwo_7d_delta"])
+                    ["fpid", "name", "position", "team", "bye", "ffc_adp", "fp_pts", "ciely_pts",
+                     "wwo_pts", "blend_pts", "source", "diff", "wwo_7d_delta"])
     if overridden:
         print("Position overrides (off the offensive board, still in the data): "
               + "; ".join(overridden))

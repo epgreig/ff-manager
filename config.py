@@ -13,9 +13,23 @@ SCORING_RULES = {
     "fumble": -2.0,
 }
 
-# Weight on WinWithOdds (prop-derived) points where both sources cover a player.
-# FantasyPros gets 1 - this.
-BLEND_WEIGHT_WWO = 0.25
+# Source weights where a player is covered. FantasyPros gets whatever is left
+# over. WWO sits at 0: investigation on 2026-08-31 showed it is a projection
+# model refreshed only on news (98% of players unchanged over three days), not
+# the live prop market it advertises. Ciely (The Athletic) replaces it — one
+# sharp analyst rather than a consensus, so genuinely diversifying, and his
+# 08-31 file already prices news ours does not.
+BLEND_WEIGHT_WWO = 0.0
+BLEND_WEIGHT_CIELY = 0.35
+
+# Ciely's workbook: 'Ranks w Proj' holds four side-by-side blocks. Bounds are
+# explicit half-open column ranges because a scan would run into the next block.
+CIELY_FILE = "2026-FFB-Projections-0831.xlsx"
+CIELY_SHEET = "Ranks w Proj"
+CIELY_BLOCKS = {"QB": (0, 14), "RB": (15, 28), "WR": (29, 41), "TE": (42, 52)}
+CIELY_COLS = {"PASS YARDS": "pass_yd", "PASS TD": "pass_td", "INT": "int",
+              "RUSH YARDS": "rush_yd", "RUSH TD": "rush_td", "REC": "rec",
+              "RECV YARDS": "rec_yd", "RECV TD": "rec_td"}
 
 # If True, rescale WWO points by the per-position mean ratio vs FP before
 # blending (corrects level disagreement between sources, keeps player ordering).
