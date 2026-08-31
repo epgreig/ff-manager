@@ -456,7 +456,7 @@ function buildBoard_(ss) {
     b.getRange(i + 1, 9).setFormula(row[2]);
   });
   var sc = starts0[1];  // second panel: label spans #/id/Player, value Tm..ADP
-  b.getRange(1, sc, 1, 3).merge().setValue('My draft slot  (type here)')
+  b.getRange(1, sc, 1, 3).merge().setValue('My draft slot (input)')
     .setFontWeight('bold');
   b.getRange(1, sc + 3, 1, 4).merge().setValue(savedSlot)
     .setBackground('#fff2cc').setFontWeight('bold').setHorizontalAlignment('center')
