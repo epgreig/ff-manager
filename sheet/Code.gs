@@ -577,8 +577,15 @@ function buildBoard_(ss) {
     });
   });
 
-  b.getRange(8, 1, 1, 8).merge().setFormula(
-    '=IF(COUNTA(Raw!$A$2:$A)=0,"NO DATA LOADED — run Draft Tools > Refresh data from GitHub, then Rebuild formulas & formatting","")')
+  // Two failure modes worth shouting about: no data at all, and a Raw file
+  // whose columns have shifted. Master reads a FIXED Raw!A2:L, so a column
+  // inserted upstream silently repoints Pts at the wrong source.
+  b.getRange(8, 1, 1, 10).merge().setFormula(
+    '=IF(COUNTA(Raw!$A$2:$A)=0,' +
+    '"NO DATA LOADED - run Draft Tools > Refresh data from GitHub, then Rebuild",' +
+    'IF(OR(Raw!$I$1<>"blend_pts",Raw!$G$1<>"fp_pts",Raw!$C$1<>"position"),' +
+    '"COLUMN MISMATCH - Raw column I is "&Raw!$I$1&", expected blend_pts. ' +
+    'The board is reading the wrong columns; fix the column order in blend.py.",""))')
     .setFontColor('#cc0000').setFontWeight('bold');
 
   // One rule per metric spanning every position panel: percentiles are taken
