@@ -8,8 +8,11 @@ table, and mapped to FantasyPros IDs via the DynastyProcess ID database.
 Spends API quota (~50 requests/day, reset timing unclear): ~1 request per 10
 offensive candidates plus 2 for K/DST.
 
+Always re-blends when it finishes, so a fetch can never leave out/blended.csv
+holding the numbers it just replaced. Pass --no-blend to skip that.
+
 Usage: python3 fetch_fp.py --full   # refetch everything, ignoring cached batches
-       python3 fetch_fp.py --cache  # reuse fresh (<24h) cache; fetch only missing/stale players
+       python3 fetch_fp.py --cache  # reuse fresh cache; fetch only missing/stale players
 With no flag, prompts for one of the two. Either mode, killed by quota, can be
 rerun: batches fetched in the last 30 minutes are served from disk without
 re-spending, so it resumes where it died.
@@ -178,6 +181,15 @@ def compile_and_write(players: dict, complete: bool):
 
     print(f"Wrote {len(rows)} players to {OUT_PATH}{'' if complete else ' (PARTIAL)'}")
     print("  by position:", dict(Counter(r["position"] for r in rows)))
+
+    # Re-blend immediately. A fetch that stops here looks like success while
+    # out/blended.csv still holds the numbers it just replaced.
+    if "--no-blend" in sys.argv:
+        print("\n--no-blend: out/blended.csv is now STALE relative to the fetch.")
+        return
+    print("\n--- re-blending ---")
+    import blend
+    blend.main()
 
 
 def load_batch_cache() -> tuple[dict, dict]:

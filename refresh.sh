@@ -7,8 +7,7 @@
 set -e
 cd "$(dirname "$0")"
 
-python3 fetch_fp.py "${1:---cache}"
-python3 blend.py
+python3 fetch_fp.py "${1:---cache}"   # fetches, then re-blends
 
 if git diff --quiet -- out/blended.csv out/idp.csv; then
   echo "No projection changes to publish."
